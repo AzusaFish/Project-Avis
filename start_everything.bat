@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
+set "CONFIG_FILE=%~dp0config.yaml"
 set "DRY_RUN=0"
 set "NO_UI=0"
 set "TTS_PROVIDER=kokoro"
@@ -9,6 +10,8 @@ set "KOKORO_LANG=en-us"
 set "KOKORO_SPEED=1.0"
 set "GPU_ID=0"
 set "CLEAN_PORTS=1"
+
+call :load_config_defaults
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -296,4 +299,29 @@ for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference
     taskkill /PID %%P /F >nul 2>nul
   )
 )
+exit /b 0
+
+:load_config_defaults
+if not exist "%CONFIG_FILE%" exit /b 0
+
+call :yaml_get "TTS_PROVIDER" TTS_PROVIDER
+call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
+call :yaml_get "KOKORO_LANG" KOKORO_LANG
+call :yaml_get "KOKORO_SPEED" KOKORO_SPEED
+call :yaml_get "GPU_ID" GPU_ID
+call :yaml_get "CLEAN_PORTS" CLEAN_PORTS
+exit /b 0
+
+:yaml_get
+set "_YAML_KEY=%~1"
+set "_YAML_TARGET=%~2"
+set "_YAML_VALUE="
+for /f "usebackq tokens=1* delims=:" %%A in (`findstr /R /B /C:"%_YAML_KEY%:" "%CONFIG_FILE%"`) do set "_YAML_VALUE=%%B"
+for /f "tokens=*" %%A in ("%_YAML_VALUE%") do set "_YAML_VALUE=%%A"
+for /f "tokens=1 delims=#" %%A in ("%_YAML_VALUE%") do set "_YAML_VALUE=%%A"
+for /f "tokens=*" %%A in ("%_YAML_VALUE%") do set "_YAML_VALUE=%%A"
+if defined _YAML_VALUE set "%_YAML_TARGET%=%_YAML_VALUE%"
+set "_YAML_KEY="
+set "_YAML_TARGET="
+set "_YAML_VALUE="
 exit /b 0

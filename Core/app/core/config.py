@@ -8,8 +8,42 @@ Beginner note:
 
 # 全局配置：通过 .env 注入所有服务地址与运行参数。
 
+import os
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _load_project_yaml() -> dict[str, str]:
+    """Load flat key-value YAML from project root config.yaml."""
+    config_path = Path(__file__).resolve().parents[3] / "config.yaml"
+    data: dict[str, str] = {}
+    if not config_path.exists():
+        return data
+
+    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+        data[key] = value
+    return data
+
+
+# Priority: project config.yaml > real process env/.env defaults
+for _k, _v in _load_project_yaml().items():
+    os.environ[_k] = _v
 
 
 class Settings(BaseSettings):
