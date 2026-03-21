@@ -1,0 +1,75 @@
+# =====================
+# Environments
+# =====================
+.conda/
+.runtime/
+**/.venv/
+**/venv/
+**/env/
+
+# =====================
+# Python caches / build
+# =====================
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.coverage
+**/.hypothesis/
+
+# =====================
+# Node / frontend
+# =====================
+**/node_modules/
+**/dist/
+**/.vite/
+**/.pnpm-store/
+
+# =====================
+# Rust / Tauri
+# =====================
+**/target/
+
+# =====================
+# Logs / temp / outputs
+# =====================
+**/*.log
+**/logs/
+**/output/
+**/outputs/
+**/tmp/
+**/temp/
+
+# =====================
+# OS / Editor
+# =====================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =====================
+# Project-specific runtime data
+# =====================
+Core/.env
+Core/data/
+Core/models/
+Core/third_party/
+
+# =====================
+# Large components and Local Data
+# =====================
+RealtimeSTT-master/
+Z/
+
+# Kokoro large model artifacts (local only)
+Core/assets/kokoro/*.onnx
+Core/assets/kokoro/*.bin
+Core/assets/kokoro/*.safetensors
+
+# Local memory databases
+Core/data/memory.db
+Core/data/chroma/

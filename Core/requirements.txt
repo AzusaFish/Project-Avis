@@ -1,0 +1,23 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+httpx>=0.27.0
+websockets>=13.0
+orjson>=3.10.0
+sqlalchemy>=2.0.0
+aiosqlite>=0.20.0
+chromadb>=0.5.0
+tiktoken>=0.7.0
+tenacity>=9.0.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.9
+PyYAML>=6.0.2
+kokoro-onnx>=0.4.9
+onnxruntime>=1.19.0
+numpy>=1.26.0
+soundfile>=0.12.1
+pyaudio>=0.2.14
+
+# Optional fallback for non-uv setup. In uv workflow, RealtimeSTT is declared in pyproject.toml.
+# -e ../RealtimeSTT-master/RealtimeSTT-master
