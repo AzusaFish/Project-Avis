@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # assistant_stream_* 控制“字幕流式回放”的切片大小与时间间隔。
     assistant_stream_chunk_chars: int = Field(default=12, alias="ASSISTANT_STREAM_CHUNK_CHARS")
     assistant_stream_interval_ms: int = Field(default=25, alias="ASSISTANT_STREAM_INTERVAL_MS")
+    llm_debug_to_frontend: bool = Field(default=True, alias="LLM_DEBUG_TO_FRONTEND")
 
     # ===== Ollama 原生参数 =====
     # 当 LLM_PROVIDER=ollama 时，LLMRouter 走 /api/chat。
@@ -62,11 +63,11 @@ class Settings(BaseSettings):
     tts_provider: str = Field(default="kokoro", alias="TTS_PROVIDER")
     tts_profile_path: str = Field(default="./configs/tts_profiles.yaml", alias="TTS_PROFILE_PATH")
     tts_default_speaker: str = Field(default="default", alias="TTS_DEFAULT_SPEAKER")
-    tts_streaming_mode: bool = Field(default=False, alias="TTS_STREAMING_MODE")
+    tts_streaming_mode: bool = Field(default=True, alias="TTS_STREAMING_MODE")
     gpt_sovits_base_url: str = Field(default="http://127.0.0.1:9880", alias="GPT_SOVITS_BASE_URL")
     kokoro_base_url: str = Field(default="http://127.0.0.1:9880", alias="KOKORO_BASE_URL")
     kokoro_model: str = Field(default="kokoro", alias="KOKORO_MODEL")
-    kokoro_voice: str = Field(default="af_sky", alias="KOKORO_VOICE")
+    kokoro_voice: str = Field(default="jf_alpha", alias="KOKORO_VOICE")
     kokoro_lang: str = Field(default="en-us", alias="KOKORO_LANG")
     kokoro_response_format: str = Field(default="wav", alias="KOKORO_RESPONSE_FORMAT")
     kokoro_speed: float = Field(default=1.0, alias="KOKORO_SPEED")
@@ -81,15 +82,15 @@ class Settings(BaseSettings):
 
     # ===== 本地仓库路径（主要用于 /health/deps 自检展示）=====
     gpt_sovits_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\AI\GPT-SoVITS-main\GPT-SoVITS-main",
+        default=r"D:\AzusaFish\Codes\Development\Project-Avis\GPT-SoVITS-main\GPT-SoVITS-main",
         alias="GPT_SOVITS_REPO",
     )
     kokoro_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\AI\kokoro",
+        default=r"D:\AzusaFish\Codes\Development\Project-Avis\Core",
         alias="KOKORO_REPO",
     )
     realtimestt_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\AI\RealtimeSTT-master\RealtimeSTT-master",
+        default=r"D:\AzusaFish\Codes\Development\Project-Avis\RealtimeSTT-master\RealtimeSTT-master",
         alias="REALTIMESTT_REPO",
     )
     reference_core_repo: str = Field(

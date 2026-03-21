@@ -11,7 +11,9 @@ Beginner note:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 
 from app.agent.context_manager import ContextManager
 from app.agent.memory import MemoryFacade
@@ -127,6 +129,81 @@ class AgentLoop:
             }
         )
 
+    @staticmethod
+    def _messages_to_prompt_text(messages: list[dict[str, str]]) -> str:
+        """Internal helper `_messages_to_prompt_text` used by this module implementation."""
+        lines: list[str] = []
+        for item in messages:
+            role = str(item.get("role", "user")).upper()
+            content = str(item.get("content", ""))
+            lines.append(f"[{role}]\n{content}")
+        return "\n\n".join(lines)
+
+    async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, str]], raw_output: str = "") -> None:
+        """Internal helper `_emit_llm_debug` used by this module implementation."""
+        if not settings.llm_debug_to_frontend:
+            return
+        await self.frontend.broadcast(
+            {
+                "protocol": "Live2DProtocol",
+                "version": "1.1",
+                "action": "llm_debug",
+                "code": 0,
+                "message": "",
+                "data": {
+                    "stage": stage,
+                    "messages": messages,
+                    "prompt_text": self._messages_to_prompt_text(messages),
+                    "raw_output": raw_output,
+                },
+            }
+        )
+
+    @staticmethod
+    def _extract_partial_speak_text(raw: str) -> str | None:
+        """Best-effort incremental parse for {"action":"speak","text":"..."} stream."""
+        if '"speak"' not in raw.lower():
+            return None
+
+        m = re.search(r'"text"\s*:\s*"', raw)
+        if not m:
+            return None
+
+        i = m.end()
+        escaped = False
+        complete = False
+        encoded_parts: list[str] = []
+        while i < len(raw):
+            ch = raw[i]
+            if escaped:
+                encoded_parts.append("\\" + ch)
+                escaped = False
+                i += 1
+                continue
+            if ch == "\\":
+                escaped = True
+                i += 1
+                continue
+            if ch == '"':
+                complete = True
+                break
+            encoded_parts.append(ch)
+            i += 1
+
+        encoded = "".join(encoded_parts)
+        if not encoded and not complete:
+            return ""
+
+        # Drop unfinished trailing escape for partial chunks.
+        if escaped and encoded.endswith("\\"):
+            encoded = encoded[:-1]
+
+        try:
+            return str(json.loads(f'"{encoded}"'))
+        except Exception:
+            # Partial stream may contain unfinished escapes; keep a readable fallback.
+            return encoded.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+
     def stop(self) -> None:
         # 外部停止入口：将循环标记置为 False。
         """Public API `stop` used by other modules or route handlers."""
@@ -197,15 +274,36 @@ class AgentLoop:
             latest_input=user_text,
         )
 
+        messages = ctx.render_messages()
+        await self._emit_llm_debug(stage="request", messages=messages)
+
+        stream_preview_text = ""
         try:
             if settings.llm_stream:
-                # 流式聚合：边接收 token 边拼接，末尾再统一交给动作解析。
+                # 真流式：在 JSON 生成过程中实时提取 text 字段并推给前端。
                 chunks: list[str] = []
-                async for delta in self.llm.generate_stream(ctx.render_messages()):
+                last_stream_text = ""
+                async for delta in self.llm.generate_stream(messages):
                     chunks.append(delta)
+                    raw_partial = "".join(chunks)
+                    partial_text = self._extract_partial_speak_text(raw_partial)
+                    if partial_text is None or partial_text == last_stream_text:
+                        continue
+                    last_stream_text = partial_text
+                    stream_preview_text = partial_text
+                    await self.frontend.broadcast(
+                        {
+                            "protocol": "Live2DProtocol",
+                            "version": "1.1",
+                            "action": "assistant_stream",
+                            "code": 0,
+                            "message": "",
+                            "data": {"text": partial_text},
+                        }
+                    )
                 model_text = "".join(chunks)
             else:
-                model_text = await self.llm.generate(ctx.render_messages())
+                model_text = await self.llm.generate(messages)
         except Exception as exc:
             logger.exception("llm request failed")
             await self._emit_runtime_error(
@@ -213,6 +311,8 @@ class AgentLoop:
                 "请稍后重试，或检查 /health/deps 与 Ollama 日志。"
             )
             return
+
+        await self._emit_llm_debug(stage="response", messages=messages, raw_output=model_text)
 
         # LLM 输出必须是动作 JSON；失败时 planner 内部会回退到“普通说话”。
         plan = parse_model_action(model_text)
@@ -233,8 +333,24 @@ class AgentLoop:
             # speak 分支：写记忆 -> 推字幕 -> 播语音 -> 推动作 -> 发响应事件。
             text = plan.action.content.strip()
             await self.memory.append_dialogue("assistant", text)
-            await self._emit_assistant_stream(text)
-            await self.tts.speak(text=text, emotion=plan.action.emotion or "neutral")
+            if settings.llm_stream:
+                if stream_preview_text != text:
+                    await self.frontend.broadcast(
+                        {
+                            "protocol": "Live2DProtocol",
+                            "version": "1.1",
+                            "action": "assistant_stream",
+                            "code": 0,
+                            "message": "",
+                            "data": {"text": text},
+                        }
+                    )
+            else:
+                await self._emit_assistant_stream(text)
+
+            # Streaming mode relies on frontend incremental TTS playback.
+            if not settings.tts_streaming_mode:
+                await self.tts.speak(text=text, emotion=plan.action.emotion or "neutral")
             await self.frontend.broadcast(
                 {
                     "protocol": "Live2DProtocol",

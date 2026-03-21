@@ -33,6 +33,10 @@ class TTSService:
         self.kokoro_response_format = settings.kokoro_response_format
         self.kokoro_speed = settings.kokoro_speed
         self.profiles = TTSProfiles(settings.tts_profile_path)
+        yaml_default_speaker = self.profiles.default_speaker()
+        speakers = self.profiles.data.get("speakers", {})
+        if yaml_default_speaker and self.default_speaker not in speakers:
+            self.default_speaker = yaml_default_speaker
 
     async def speak(self, text: str, emotion: str = "neutral", speaker: str | None = None) -> None:
         # 按 provider 路由到对应的 TTS 后端。
@@ -73,22 +77,23 @@ class TTSService:
     async def _speak_kokoro(self, text: str, profile: dict) -> None:
         # 优先尝试 OpenAI 风格接口；若后端实现不同则回退到 /tts 兼容调用。
         """Internal helper `_speak_kokoro` used by this module implementation."""
-        voice = profile.get("kokoro_voice", self.kokoro_voice)
+        voice = profile.get("kokoro_voice", profile.get("voice", self.kokoro_voice))
         speed = float(profile.get("kokoro_speed", profile.get("speed_factor", self.kokoro_speed)))
         response_format = profile.get("kokoro_response_format", self.kokoro_response_format)
+        lang = profile.get("kokoro_lang", profile.get("lang", self.kokoro_lang))
 
         openai_payload = {
             "model": profile.get("kokoro_model", self.kokoro_model),
             "input": text,
             "voice": voice,
-            "lang": profile.get("kokoro_lang", self.kokoro_lang),
+            "lang": lang,
             "response_format": response_format,
             "speed": speed,
         }
         fallback_payload = {
             "text": text,
             "voice": voice,
-            "lang": profile.get("kokoro_lang", self.kokoro_lang),
+            "lang": lang,
             "speed": speed,
             "format": response_format,
         }

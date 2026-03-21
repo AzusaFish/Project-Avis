@@ -4,17 +4,17 @@ param(
     [string]$RealtimeSttEnv = "base",
     [ValidateSet("kokoro", "gpt_sovits")]
     [string]$TtsProvider = "kokoro",
-    [string]$CondaRoot = "D:\AzusaFish\Codes\Development\AI\.conda",
-    [string]$KokoroDir = "D:\AzusaFish\Codes\Development\AI\kokoro",
+    [string]$CondaRoot = "D:\AzusaFish\Codes\Development\Project-Avis\.conda",
+    [string]$KokoroDir = "D:\AzusaFish\Codes\Development\Project-Avis\Core",
     [string]$KokoroLaunchCmd = "python -m kokoro_fastapi --host 127.0.0.1 --port 9880"
 )
 
 # Start all local services in separate PowerShell windows.
 
-$coreDir = "D:\AzusaFish\Codes\Development\AI\Core"
-$gptDir = "D:\AzusaFish\Codes\Development\AI\GPT-SoVITS-main\GPT-SoVITS-main"
-$sttDir = "D:\AzusaFish\Codes\Development\AI\RealtimeSTT-master\RealtimeSTT-master"
-$uiDir = "D:\AzusaFish\Codes\Development\AI\live2d-desktop"
+$coreDir = "D:\AzusaFish\Codes\Development\Project-Avis\Core"
+$gptDir = "D:\AzusaFish\Codes\Development\Project-Avis\GPT-SoVITS-main\GPT-SoVITS-main"
+$sttDir = "D:\AzusaFish\Codes\Development\Project-Avis\RealtimeSTT-master\RealtimeSTT-master"
+$uiDir = "D:\AzusaFish\Codes\Development\Project-Avis\live2d-desktop"
 
 $CondaHook = Join-Path $CondaRoot "shell\condabin\conda-hook.ps1"
 if (-not (Test-Path $CondaHook)) {

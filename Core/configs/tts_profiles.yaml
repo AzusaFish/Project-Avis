@@ -1,11 +1,19 @@
 default_speaker: atri
 
 speakers:
-  natsuki:
-    text_lang: ja
-    prompt_lang: ja
-    ref_audio_path: D:/AzusaFish/Codes/Development/AI/Core/assets/voices/neutral.wav
-    prompt_text: "なつきさんが私を海から引き揚げてくれた時、なんとなく予感はしていました。いつか、こんな日が来ることを。"
+  atri:
+    # Kokoro 可选字段（当 TTS_PROVIDER=kokoro 时生效）
+    kokoro_voice: jf_alpha
+    kokoro_model: kokoro
+    kokoro_lang: en-us
+    kokoro_response_format: wav
+    kokoro_speed: 1.0
+
+    # GPT-SoVITS 字段（当 TTS_PROVIDER=gpt_sovits 时生效）
+    text_lang: zh
+    prompt_lang: zh
+    ref_audio_path: D:/voices/atri/neutral.wav
+    prompt_text: 今天也要一起努力哦。
     text_split_method: cut5
     batch_size: 1
     media_type: wav
@@ -14,3 +22,13 @@ speakers:
     top_p: 1.0
     temperature: 1.0
     speed_factor: 1.0
+    by_emotion:
+      happy:
+        ref_audio_path: D:/voices/atri/happy.wav
+        prompt_text: 太好了，今天状态很棒。
+      angry:
+        ref_audio_path: D:/voices/atri/angry.wav
+        prompt_text: 别闹了，认真一点。
+      sad:
+        ref_audio_path: D:/voices/atri/sad.wav
+        prompt_text: 没关系，我们慢慢来。

@@ -17,6 +17,8 @@ const modelY = ref(Number(localStorage.getItem('l2d_modelY')) || 0)
 const wsUrl = ref(localStorage.getItem('l2d_wsUrl') || 'ws://127.0.0.1:8080/ws/live2d')
 const resServerUrl = ref(localStorage.getItem('l2d_resServerUrl') || 'http://127.0.0.1:8080')
 const ttsServerUrl = ref(localStorage.getItem('l2d_ttsServerUrl') || 'http://127.0.0.1:9880')
+const ttsVoiceOverride = ref(localStorage.getItem('l2d_ttsVoiceOverride') || '')
+const ttsLangOverride = ref(localStorage.getItem('l2d_ttsLangOverride') || '')
 const ttsVolume = ref(Number(localStorage.getItem('l2d_ttsVolume')) || 0.9)
 const audioOutputDeviceId = ref(localStorage.getItem('l2d_audioOutputDeviceId') || '')
 const audioOutputDevices = ref<MediaDeviceInfo[]>([])
@@ -58,8 +60,8 @@ let audioUnlockBound = false
 let assistantStreamPrevText = ''
 let ttsPendingStreamText = ''
 
-const STREAM_TTS_CHUNK_CHARS = 90
-const STREAM_TTS_MIN_CHARS = 10
+const STREAM_TTS_CHUNK_CHARS = 120
+const STREAM_TTS_MIN_CHARS = 24
 
 function normalizeAudioOutputName(device: MediaDeviceInfo): string {
   return device.label?.trim() || `Audio Output ${device.deviceId.slice(0, 6)}`
@@ -112,7 +114,12 @@ function splitSpeakableChunks(delta: string, forceFlush = false): string[] {
   }
 
   if (forceFlush && ttsPendingStreamText.trim()) {
-    chunks.push(ttsPendingStreamText.trim())
+    const tail = ttsPendingStreamText.trim()
+    if (tail.length < STREAM_TTS_MIN_CHARS && chunks.length > 0) {
+      chunks[chunks.length - 1] = `${chunks[chunks.length - 1]} ${tail}`.trim()
+    } else {
+      chunks.push(tail)
+    }
     ttsPendingStreamText = ''
   }
   return chunks
@@ -154,6 +161,10 @@ function bindAudioUnlock() {
 async function playAssistantTts(text: string) {
   const cleaned = text.trim()
   if (!cleaned) return
+  if (cleaned.length < STREAM_TTS_MIN_CHARS && ttsQueue.length > 0) {
+    ttsQueue[ttsQueue.length - 1] = `${ttsQueue[ttsQueue.length - 1]} ${cleaned}`.trim()
+    return
+  }
   ttsQueue.push(cleaned)
   if (ttsPlaying) return
   ttsPlaying = true
@@ -161,17 +172,21 @@ async function playAssistantTts(text: string) {
   try {
     while (ttsQueue.length > 0) {
       const next = ttsQueue.shift()!
+      const body: Record<string, unknown> = {
+        model: 'kokoro',
+        input: next,
+        response_format: 'wav',
+      }
+      if (ttsVoiceOverride.value.trim()) {
+        body.voice = ttsVoiceOverride.value.trim()
+      }
+      if (ttsLangOverride.value.trim()) {
+        body.lang = ttsLangOverride.value.trim()
+      }
       const resp = await fetch(`${ttsServerUrl.value.replace(/\/$/, '')}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'kokoro',
-          input: next,
-          voice: 'af_sky',
-          lang: 'en-us',
-          response_format: 'wav',
-          speed: 1.0,
-        }),
+        body: JSON.stringify(body),
       })
       if (!resp.ok) {
         console.error('[TTS] synth failed:', resp.status, await resp.text().catch(() => ''))
@@ -512,6 +527,19 @@ function connectWs() {
             console.log('[WS] Live2D action:', actionName)
             handleLive2dAction(actionName)
           }
+        } else if (msg.action === 'llm_debug' && msg.data) {
+          const stage = String(msg.data.stage || 'unknown')
+          console.groupCollapsed(`[LLM DEBUG] ${stage}`)
+          if (msg.data.messages) {
+            console.log('messages:', msg.data.messages)
+          }
+          if (msg.data.prompt_text) {
+            console.log('prompt_text:\n', msg.data.prompt_text)
+          }
+          if (msg.data.raw_output) {
+            console.log('raw_output:\n', msg.data.raw_output)
+          }
+          console.groupEnd()
         }
       } catch { /* ignore parse errors */ }
     }
@@ -527,7 +555,7 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(connectWs, 5000)
 }
 
-watch([modelPath, modelScale, modelX, modelY, wsUrl, resServerUrl, ttsServerUrl, ttsVolume, audioOutputDeviceId], () => {
+watch([modelPath, modelScale, modelX, modelY, wsUrl, resServerUrl, ttsServerUrl, ttsVoiceOverride, ttsLangOverride, ttsVolume, audioOutputDeviceId], () => {
   // 实时保存设置，重启前端后自动恢复。
   localStorage.setItem('l2d_modelPath', modelPath.value)
   localStorage.setItem('l2d_modelScale', String(modelScale.value))
@@ -536,6 +564,8 @@ watch([modelPath, modelScale, modelX, modelY, wsUrl, resServerUrl, ttsServerUrl,
   localStorage.setItem('l2d_wsUrl', wsUrl.value)
   localStorage.setItem('l2d_resServerUrl', resServerUrl.value)
   localStorage.setItem('l2d_ttsServerUrl', ttsServerUrl.value)
+  localStorage.setItem('l2d_ttsVoiceOverride', ttsVoiceOverride.value)
+  localStorage.setItem('l2d_ttsLangOverride', ttsLangOverride.value)
   localStorage.setItem('l2d_ttsVolume', String(ttsVolume.value))
   localStorage.setItem('l2d_audioOutputDeviceId', audioOutputDeviceId.value)
 })
@@ -650,6 +680,8 @@ async function sendChat() {
       v-model:wsUrl="wsUrl"
       v-model:resServerUrl="resServerUrl"
       v-model:ttsServerUrl="ttsServerUrl"
+      v-model:ttsVoiceOverride="ttsVoiceOverride"
+      v-model:ttsLangOverride="ttsLangOverride"
       v-model:ttsVolume="ttsVolume"
       v-model:audioOutputDeviceId="audioOutputDeviceId"
       :audio-output-devices="audioOutputDevices.map((d) => ({ id: d.deviceId, label: normalizeAudioOutputName(d) }))"

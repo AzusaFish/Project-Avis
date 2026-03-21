@@ -31,19 +31,19 @@ class OpenAISpeechReq(BaseModel):
     """OpenAISpeechReq: main class container for related behavior in this module."""
     model: str = "kokoro"
     input: str
-    voice: str = "af_sky"
+    voice: str | None = None
     response_format: str = "wav"
-    speed: float = 1.0
-    lang: str = "en-us"
+    speed: float | None = None
+    lang: str | None = None
 
 
 class LegacyTTSReq(BaseModel):
     """LegacyTTSReq: main class container for related behavior in this module."""
     text: str
-    voice: str = "af_sky"
-    speed: float = 1.0
+    voice: str | None = None
+    speed: float | None = None
     format: str = "wav"
-    lang: str = "en-us"
+    lang: str | None = None
 
 
 def _to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
@@ -68,11 +68,13 @@ VOICES_PATH = os.getenv(
     "KOKORO_VOICES_PATH",
     os.path.abspath("./assets/kokoro/voices-v1.0.bin"),
 )
-DEFAULT_VOICE = os.getenv("KOKORO_VOICE", "af_sky")
-DEFAULT_LANG = os.getenv("KOKORO_LANG", "en-us")
+DEFAULT_VOICE = os.getenv("KOKORO_VOICE", "af_sky").strip()
+DEFAULT_LANG = os.getenv("KOKORO_LANG", "en-us").strip()
+DEFAULT_SPEED = float(os.getenv("KOKORO_SPEED", "1.0"))
 HOST = os.getenv("KOKORO_HOST", "127.0.0.1")
 PORT = int(os.getenv("KOKORO_PORT", "9880"))
 CHUNK_CHARS = max(40, int(os.getenv("KOKORO_CHUNK_CHARS", "180")))
+MIN_CHUNK_CHARS = max(8, int(os.getenv("KOKORO_MIN_CHUNK_CHARS", "24")))
 
 
 if not os.path.exists(MODEL_PATH):
@@ -81,6 +83,9 @@ if not os.path.exists(VOICES_PATH):
     raise FileNotFoundError(f"Kokoro voices not found: {VOICES_PATH}")
 
 kokoro = Kokoro(MODEL_PATH, VOICES_PATH)
+AVAILABLE_VOICES = set(kokoro.voices)
+FALLBACK_VOICE = os.getenv("KOKORO_FALLBACK_VOICE", "af_sky").strip()
+_WARNED_MISSING_VOICES: set[str] = set()
 app = FastAPI(title="Kokoro ONNX HTTP Bridge")
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +99,33 @@ app.add_middleware(
 def _normalize_text(text: str) -> str:
     """Internal helper `_normalize_text` used by this module implementation."""
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _resolve_voice(voice: str) -> str:
+    """Return a valid Kokoro voice, falling back gracefully if missing."""
+    if voice in AVAILABLE_VOICES:
+        return voice
+
+    candidates = [
+        FALLBACK_VOICE,
+        "af_sky",
+    ]
+    fallback = next((v for v in candidates if v in AVAILABLE_VOICES), None)
+    if fallback is None:
+        fallback = next(iter(AVAILABLE_VOICES))
+
+    if voice not in _WARNED_MISSING_VOICES:
+        _WARNED_MISSING_VOICES.add(voice)
+        preview = ", ".join(sorted(AVAILABLE_VOICES)[:12])
+        logger.warning(
+            "Requested voice '%s' not found; falling back to '%s'. "
+            "Set KOKORO_VOICE or KOKORO_FALLBACK_VOICE to an available voice. "
+            "Available preview: %s",
+            voice,
+            fallback,
+            preview,
+        )
+    return fallback
 
 
 def _split_text_chunks(text: str, max_chars: int) -> list[str]:
@@ -126,7 +158,19 @@ def _split_text_chunks(text: str, max_chars: int) -> list[str]:
                 chunks.append(part)
     if buf:
         chunks.append(buf)
-    return chunks or [text]
+
+    # Merge very short pieces to avoid unstable tiny-utterance synthesis.
+    merged: list[str] = []
+    for part in chunks:
+        if merged and len(part) < MIN_CHUNK_CHARS:
+            merged[-1] = f"{merged[-1]} {part}".strip()
+        else:
+            merged.append(part)
+    if len(merged) > 1 and len(merged[-1]) < MIN_CHUNK_CHARS:
+        merged[-2] = f"{merged[-2]} {merged[-1]}".strip()
+        merged.pop()
+
+    return merged or [text]
 
 
 def _safe_kokoro_create(text: str, voice: str, speed: float, lang: str) -> tuple[np.ndarray, int]:
@@ -181,14 +225,15 @@ async def openai_speech(req: OpenAISpeechReq) -> Response:
     text = _normalize_text(req.input or "")
     if not text:
         raise HTTPException(status_code=400, detail="input is required")
-    if req.speed <= 0:
+    speed = float(req.speed) if req.speed is not None else DEFAULT_SPEED
+    if speed <= 0:
         raise HTTPException(status_code=400, detail="speed must be > 0")
 
-    voice = req.voice or DEFAULT_VOICE
+    voice = _resolve_voice(req.voice or DEFAULT_VOICE)
     lang = req.lang or DEFAULT_LANG
 
     try:
-        audio, sample_rate = _synthesize_text(text=text, voice=voice, speed=float(req.speed), lang=lang)
+        audio, sample_rate = _synthesize_text(text=text, voice=voice, speed=speed, lang=lang)
     except Exception as exc:
         logger.exception("Kokoro synthesis failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"kokoro synthesis failed: {exc}") from exc
@@ -203,14 +248,15 @@ async def legacy_tts(req: LegacyTTSReq) -> Response:
     text = _normalize_text(req.text or "")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    if req.speed <= 0:
+    speed = float(req.speed) if req.speed is not None else DEFAULT_SPEED
+    if speed <= 0:
         raise HTTPException(status_code=400, detail="speed must be > 0")
 
-    voice = req.voice or DEFAULT_VOICE
+    voice = _resolve_voice(req.voice or DEFAULT_VOICE)
     lang = req.lang or DEFAULT_LANG
 
     try:
-        audio, sample_rate = _synthesize_text(text=text, voice=voice, speed=float(req.speed), lang=lang)
+        audio, sample_rate = _synthesize_text(text=text, voice=voice, speed=speed, lang=lang)
     except Exception as exc:
         logger.exception("Kokoro synthesis failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"kokoro synthesis failed: {exc}") from exc
@@ -221,5 +267,11 @@ async def legacy_tts(req: LegacyTTSReq) -> Response:
 
 if __name__ == "__main__":
     import uvicorn
+
+    if DEFAULT_VOICE not in AVAILABLE_VOICES:
+        logger.warning(
+            "KOKORO_VOICE '%s' not available, service will auto-fallback at runtime.",
+            DEFAULT_VOICE,
+        )
 
     uvicorn.run(app, host=HOST, port=PORT)

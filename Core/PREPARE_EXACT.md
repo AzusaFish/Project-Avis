@@ -51,11 +51,11 @@ speakers:
   atri:
     text_lang: zh
     prompt_lang: zh
-    ref_audio_path: D:/AzusaFish/Codes/Development/AI/Core/assets/voices/atri/neutral.wav
+    ref_audio_path: D:/AzusaFish/Codes/Development/Project-Avis/Core/assets/voices/atri/neutral.wav
     prompt_text: 今天也要一起努力哦。
     by_emotion:
       happy:
-        ref_audio_path: D:/AzusaFish/Codes/Development/AI/Core/assets/voices/atri/happy.wav
+        ref_audio_path: D:/AzusaFish/Codes/Development/Project-Avis/Core/assets/voices/atri/happy.wav
         prompt_text: 太好了，今天状态很好。
 ```
 
@@ -107,7 +107,7 @@ python scripts/import_persona_jsonl.py --input datasets/persona/atri.jsonl --chr
 ## 5. RealtimeSTT 相关
 
 你已有仓库：
-- `D:/AzusaFish/Codes/Development/AI/RealtimeSTT-master/RealtimeSTT-master`
+- `D:/AzusaFish/Codes/Development/Project-Avis/RealtimeSTT-master/RealtimeSTT-master`
 
 需要启动两个进程：
 
@@ -124,7 +124,7 @@ python bridges/realtimestt_http_bridge.py
 ## 6. GPT-SoVITS 相关
 
 你已有仓库：
-- `D:/AzusaFish/Codes/Development/AI/GPT-SoVITS-main/GPT-SoVITS-main`
+- `D:/AzusaFish/Codes/Development/Project-Avis/GPT-SoVITS-main/GPT-SoVITS-main`
 
 需要准备：
 
@@ -140,7 +140,7 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
 ## 7. 前端 Live2D 资源
 
 前端项目路径：
-- `D:/AzusaFish/Codes/Development/AI/live2d-desktop`
+- `D:/AzusaFish/Codes/Development/Project-Avis/live2d-desktop`
 
 你需要确认：
 
@@ -148,7 +148,7 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
 - 在前端设置里填写模型路径
 
 推荐把模型放到：
-- `D:/AzusaFish/Codes/Development/AI/Data/Live2D Cubism/...`
+- `D:/AzusaFish/Codes/Development/Project-Avis/Data/Live2D Cubism/...`
 
 ## 8. 微信桥（待你接入）
 
@@ -158,7 +158,7 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
 - `POST /send` 发送消息
 
 建议你单独放在：
-- `D:/AzusaFish/Codes/Development/AI/bridges/wechat_bridge/`
+- `D:/AzusaFish/Codes/Development/Project-Avis/bridges/wechat_bridge/`
 
 ## 9. 杀戮尖塔桥（待你接入）
 
@@ -168,7 +168,7 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
 - `POST /action` 出牌指令
 
 建议路径：
-- `D:/AzusaFish/Codes/Development/AI/bridges/sts_bridge/`
+- `D:/AzusaFish/Codes/Development/Project-Avis/bridges/sts_bridge/`
 
 ## 10. 一键启动
 

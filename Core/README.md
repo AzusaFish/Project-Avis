@@ -25,7 +25,7 @@ pip install uv
 2. 创建并同步项目环境
 
 ```bash
-cd D:/AzusaFish/Codes/Development/AI/Core
+cd D:/AzusaFish/Codes/Development/Project-Avis/Core
 uv sync
 ```
 

@@ -14,6 +14,8 @@ const modelY = defineModel<number>('modelY', { required: true })
 const wsUrl = defineModel<string>('wsUrl', { required: true })
 const resServerUrl = defineModel<string>('resServerUrl', { required: true })
 const ttsServerUrl = defineModel<string>('ttsServerUrl', { required: true })
+const ttsVoiceOverride = defineModel<string>('ttsVoiceOverride', { required: true })
+const ttsLangOverride = defineModel<string>('ttsLangOverride', { required: true })
 const ttsVolume = defineModel<number>('ttsVolume', { required: true })
 const audioOutputDeviceId = defineModel<string>('audioOutputDeviceId', { required: true })
 </script>
@@ -64,6 +66,20 @@ const audioOutputDeviceId = defineModel<string>('audioOutputDeviceId', { require
         <label>TTS 服务地址</label>
         <input v-model="ttsServerUrl" placeholder="http://127.0.0.1:9880" />
         <small>Kokoro /v1/audio/speech 地址（用于前端本地播报）</small>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>TTS 音色覆盖（可留空）</label>
+          <input v-model="ttsVoiceOverride" placeholder="jf_alpha" />
+        </div>
+        <div class="field">
+          <label>TTS 语言覆盖（可留空）</label>
+          <input v-model="ttsLangOverride" placeholder="en-us" />
+        </div>
+      </div>
+      <div class="field">
+        <small>留空时使用 Kokoro 服务端默认（由 start_everything.bat / 环境变量控制）。</small>
       </div>
 
       <div class="field">

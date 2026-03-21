@@ -19,7 +19,7 @@
 ### 2.1 你用一键启动（start_everything.bat）时
 
 优先改这个文件顶部变量：
-- Development/AI/start_everything.bat
+- Development/Project-Avis/start_everything.bat
   - KOKORO_VOICE
   - KOKORO_LANG
   - KOKORO_SPEED
@@ -115,7 +115,7 @@ tts_profiles.yaml 顶层的 default_speaker 字段目前不是主生效项。
   - ref_audio_path（GPT-SoVITS）
 
 ### 5.2 启动脚本中的仓库路径
-- Development/AI/start_everything.bat
+- Development/Project-Avis/start_everything.bat
   - CORE_DIR
   - GPT_DIR
   - STT_DIR
@@ -129,7 +129,7 @@ tts_profiles.yaml 顶层的 default_speaker 字段目前不是主生效项。
 ## 6. 前端配置（live2d-desktop）
 
 前端设置保存在浏览器存储 localStorage，由下面文件读写：
-- Development/AI/live2d-desktop/src/App.vue
+- Development/Project-Avis/live2d-desktop/src/App.vue
 
 主要键：
 - l2d_modelPath（模型路径）

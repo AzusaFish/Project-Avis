@@ -47,3 +47,8 @@ class TTSProfiles:
             if isinstance(override, dict):
                 base.update(override)
         return base
+
+    def default_speaker(self) -> str:
+        """Public API `default_speaker` used by other modules or route handlers."""
+        value = str(self.data.get("default_speaker", "")).strip()
+        return value
