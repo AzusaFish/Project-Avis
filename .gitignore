@@ -56,6 +56,11 @@ Thumbs.db
 # =====================
 Core/.env
 Core/data/
+Unsloth/Data/
+Unsloth/avis_lora_model/
+Unsloth/avis_lora_model_ver1/
+Unsloth/unsloth_compiled_cache/
+Unsloth/hf_cache/
 Core/models/
 Core/third_party/
 
