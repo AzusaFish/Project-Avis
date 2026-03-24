@@ -1,3 +1,3 @@
 ## Project Avis
 
-A AI project inspired by Neuro.
+An AI project inspired by Neuro.
