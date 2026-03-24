@@ -21,7 +21,6 @@ os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "1800")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 # If you are in CN and direct HF is slow, uncomment the next line:
 #os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-#os.environ.setdefault("HF_TOKEN", "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")
 
 
 REQUIRED_FILES = [
