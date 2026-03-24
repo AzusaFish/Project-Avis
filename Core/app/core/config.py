@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     assistant_stream_interval_ms: int = Field(default=25, alias="ASSISTANT_STREAM_INTERVAL_MS")
     llm_debug_to_frontend: bool = Field(default=True, alias="LLM_DEBUG_TO_FRONTEND")
 
+    # ===== GGUF / llama.cpp(OpenAI-compatible server) =====
+    gguf_base_url: str = Field(default="http://127.0.0.1:8081/v1", alias="GGUF_BASE_URL")
+    gguf_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_MODEL")
+
     # ===== Ollama 原生参数 =====
     # 当 LLM_PROVIDER=ollama 时，LLMRouter 走 /api/chat。
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")

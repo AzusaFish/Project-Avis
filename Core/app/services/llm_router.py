@@ -37,6 +37,17 @@ class LLMRouter:
         self.top_p = settings.llm_top_p
         self.ollama_base_url = settings.ollama_base_url.rstrip("/")
         self.ollama_model = settings.ollama_model
+        self.gguf_base_url = settings.gguf_base_url.rstrip("/")
+        self.gguf_model = settings.gguf_model
+
+    def _using_openai_compatible(self) -> bool:
+        """Return true when provider speaks OpenAI-compatible /v1/chat/completions."""
+        return self.provider in {"openai", "gguf", "llama_cpp"}
+
+    def _active_openai_base_and_model(self) -> tuple[str, str]:
+        if self.provider in {"gguf", "llama_cpp"}:
+            return self.gguf_base_url, self.gguf_model
+        return self.base_url, self.model
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(0.2))
     async def generate(self, messages: list[dict[str, str]]) -> str:
@@ -45,6 +56,8 @@ class LLMRouter:
         """Public API `generate` used by other modules or route handlers."""
         if self.provider == "ollama":
             return await self._generate_ollama(messages)
+        if self._using_openai_compatible():
+            return await self._generate_openai_compatible(messages)
         return await self._generate_openai_compatible(messages)
 
     async def generate_stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str]:
@@ -54,6 +67,10 @@ class LLMRouter:
             async for delta in self._generate_stream_ollama(messages):
                 yield delta
             return
+        if self._using_openai_compatible():
+            async for delta in self._generate_stream_openai_compatible(messages):
+                yield delta
+            return
         async for delta in self._generate_stream_openai_compatible(messages):
             yield delta
 
@@ -61,15 +78,20 @@ class LLMRouter:
         # 调用 OpenAI 兼容的 chat/completions 非流式接口。
         # headers 里 Bearer token 只在 openai-compatible 模式使用。
         """Internal helper `_generate_openai_compatible` used by this module implementation."""
-        url = f"{self.base_url}/chat/completions"
+        base_url, model_name = self._active_openai_base_and_model()
+        url = f"{base_url}/chat/completions"
         payload = {
-            "model": self.model,
+            "model": model_name,
             "messages": messages,
             "temperature": self.temperature,
             "top_p": self.top_p,
             "max_tokens": settings.llm_max_output,
         }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if self.provider in {"gguf", "llama_cpp"}:
+            payload["stop"] = ["<|im_end|>", "<|im_start|>"]
+        headers = {}
+        if self.api_key and self.api_key != "EMPTY":
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         async with httpx.AsyncClient(timeout=40.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
@@ -150,16 +172,21 @@ class LLMRouter:
         # 解析 OpenAI SSE 数据流并提取增量文本。
         # SSE 每行以 `data: ` 开头，`[DONE]` 表示流结束。
         """Internal helper `_generate_stream_openai_compatible` used by this module implementation."""
-        url = f"{self.base_url}/chat/completions"
+        base_url, model_name = self._active_openai_base_and_model()
+        url = f"{base_url}/chat/completions"
         payload = {
-            "model": self.model,
+            "model": model_name,
             "messages": messages,
             "temperature": self.temperature,
             "top_p": self.top_p,
             "max_tokens": settings.llm_max_output,
             "stream": True,
         }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if self.provider in {"gguf", "llama_cpp"}:
+            payload["stop"] = ["<|im_end|>", "<|im_start|>"]
+        headers = {}
+        if self.api_key and self.api_key != "EMPTY":
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         async with httpx.AsyncClient(timeout=40.0) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
@@ -184,6 +211,23 @@ class LLMRouter:
     async def check_ready(self) -> dict[str, object]:
         # 依赖体检：检查 Ollama 在线状态和目标模型可用性。
         """Public API `check_ready` used by other modules or route handlers."""
+        if self.provider in {"gguf", "llama_cpp"}:
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    resp = await client.get(f"{self.gguf_base_url}/models")
+                    resp.raise_for_status()
+                    data = resp.json()
+                    names = [m.get("id", "") for m in data.get("data", [])]
+                    found = any(self.gguf_model == n for n in names)
+                    return {
+                        "provider": self.provider,
+                        "ok": found,
+                        "model": self.gguf_model,
+                        "available_models": names,
+                    }
+            except Exception as exc:
+                return {"provider": self.provider, "ok": False, "error": str(exc)}
+
         if self.provider != "ollama":
             return {"provider": self.provider, "ok": True, "detail": "skip ollama check"}
 

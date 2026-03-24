@@ -10,6 +10,17 @@ set "KOKORO_LANG=en-us"
 set "KOKORO_SPEED=1.0"
 set "GPU_ID=0"
 set "CLEAN_PORTS=1"
+set "LLM_PROVIDER=ollama"
+set "GGUF_BASE_URL=http://127.0.0.1:8081/v1"
+set "GGUF_MODEL=Avis-14B-v1.Q4_K_M.gguf"
+set "GGUF_MODEL_PATH="
+set "GGUF_THREADS=10"
+set "GGUF_N_GPU_LAYERS=99"
+set "GGUF_CTX=8192"
+set "GGUF_PORT=8081"
+set "LLAMA_SERVER_EXE="
+set "GGUF_MAIN_GPU=0"
+set "GGUF_CHAT_TEMPLATE=chatml"
 
 call :load_config_defaults
 
@@ -56,6 +67,60 @@ set "GPT_DIR=%AI_ROOT%\GPT-SoVITS-main\GPT-SoVITS-main"
 set "STT_DIR=%AI_ROOT%\RealtimeSTT-master\RealtimeSTT-master"
 set "UI_DIR=%AI_ROOT%\live2d-desktop"
 set "CORE_VENV_PY=%CORE_DIR%\.venv\Scripts\python.exe"
+if not defined GGUF_MODEL_PATH set "GGUF_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_MODEL%"
+if "%GGUF_MODEL_PATH:~0,2%"=="./" set "GGUF_MODEL_PATH=%AI_ROOT%\%GGUF_MODEL_PATH:~2%"
+if "%GGUF_MODEL_PATH:~0,2%"==".\" set "GGUF_MODEL_PATH=%AI_ROOT%\%GGUF_MODEL_PATH:~2%"
+
+for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; try {([uri]'%GGUF_BASE_URL%').Port} catch {''}"') do (
+  if not "%%P"=="" set "GGUF_PORT=%%P"
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" if not exist "%GGUF_MODEL_PATH%" (
+  echo [ERROR] GGUF model not found: %GGUF_MODEL_PATH%
+  exit /b 1
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" (
+  for /d %%D in ("%USERPROFILE%\.unsloth\llama.cpp\llama-b*-bin-win-vulkan-x64") do (
+    if not defined LLAMA_SERVER_EXE if exist "%%~fD\llama-server.exe" set "LLAMA_SERVER_EXE=%%~fD\llama-server.exe"
+  )
+
+  for /d %%D in ("%USERPROFILE%\.unsloth\llama.cpp\llama-b*-bin-win-cuda-*-x64") do (
+    if not defined LLAMA_SERVER_EXE if exist "%%~fD\llama-server.exe" set "LLAMA_SERVER_EXE=%%~fD\llama-server.exe"
+  )
+
+  for /f "delims=" %%I in ('where llama-server.exe 2^>nul') do (
+    if not defined LLAMA_SERVER_EXE set "LLAMA_SERVER_EXE=%%~fI"
+  )
+  if not defined LLAMA_SERVER_EXE if exist "%USERPROFILE%\.unsloth\llama.cpp\llama-server.exe" (
+    set "LLAMA_SERVER_EXE=%USERPROFILE%\.unsloth\llama.cpp\llama-server.exe"
+  )
+  if not defined LLAMA_SERVER_EXE if exist "%USERPROFILE%\.unsloth\llama.cpp\build\bin\Release\llama-server.exe" (
+    set "LLAMA_SERVER_EXE=%USERPROFILE%\.unsloth\llama.cpp\build\bin\Release\llama-server.exe"
+  )
+  if not defined LLAMA_SERVER_EXE (
+    echo [ERROR] llama-server.exe not found.
+    echo [HINT] Expected one of:
+    echo [HINT]   1. In PATH as llama-server.exe
+    echo [HINT]   2. %USERPROFILE%\.unsloth\llama.cpp\llama-server.exe
+    echo [HINT]   3. %USERPROFILE%\.unsloth\llama.cpp\build\bin\Release\llama-server.exe
+    exit /b 1
+  )
+
+  set "HAS_GPU_BACKEND=0"
+  for %%I in ("%LLAMA_SERVER_EXE%") do set "LLAMA_SERVER_DIR=%%~dpI"
+  dir /b "%LLAMA_SERVER_DIR%ggml-vulkan*.dll" >nul 2>nul
+  if not errorlevel 1 set "HAS_GPU_BACKEND=1"
+  if "%HAS_GPU_BACKEND%"=="0" (
+    dir /b "%LLAMA_SERVER_DIR%ggml-cuda*.dll" >nul 2>nul
+    if not errorlevel 1 set "HAS_GPU_BACKEND=1"
+  )
+  if "%HAS_GPU_BACKEND%"=="0" (
+    echo [ERROR] Selected llama-server has no GPU backend DLL ^(vulkan/cuda^): %LLAMA_SERVER_EXE%
+    echo [HINT] Install a GPU build, e.g. llama-bXXXX-bin-win-vulkan-x64.
+    exit /b 1
+  )
+)
 set "UV_EXE="
 for /f "delims=" %%I in ('where uv 2^>nul') do (
   if not defined UV_EXE set "UV_EXE=%%~fI"
@@ -98,6 +163,12 @@ if not exist "%CORE_DIR%\configs\tts_profiles.yaml" (
 
 echo [INFO] uv: %UV_EXE%
 echo [INFO] TTS provider: %TTS_PROVIDER%
+echo [INFO] LLM provider: %LLM_PROVIDER%
+if /I "%LLM_PROVIDER%"=="gguf" (
+  echo [INFO] GGUF model path: %GGUF_MODEL_PATH%
+  echo [INFO] GGUF base URL: %GGUF_BASE_URL%
+  echo [INFO] llama-server: %LLAMA_SERVER_EXE%
+)
 if /I "%TTS_PROVIDER%"=="kokoro" (
   echo [INFO] Kokoro voice: %KOKORO_VOICE%
   echo [INFO] Kokoro lang: %KOKORO_LANG%
@@ -186,6 +257,7 @@ if "%DRY_RUN%"=="0" (
 )
 
 if "%DRY_RUN%"=="0" if "%CLEAN_PORTS%"=="1" (
+  if /I "%LLM_PROVIDER%"=="gguf" call :kill_port %GGUF_PORT%
   call :kill_port 8080
   call :kill_port 9000
   call :kill_port 9880
@@ -195,6 +267,18 @@ if "%DRY_RUN%"=="0" if "%CLEAN_PORTS%"=="1" (
 
 set "RUNNER_DIR=%TEMP%\neuro_core_launchers"
 if not exist "%RUNNER_DIR%" mkdir "%RUNNER_DIR%"
+
+if /I "%LLM_PROVIDER%"=="gguf" (
+  echo [0/6] Preparing GGUF llama-server launcher...
+  > "%RUNNER_DIR%\gguf_llm.cmd" (
+    echo @echo off
+    echo title GGUF LLM
+    echo cd /d "%AI_ROOT%"
+    echo set "CUDA_VISIBLE_DEVICES=%GPU_ID%"
+    echo "%LLAMA_SERVER_EXE%" -m "%GGUF_MODEL_PATH%" --host 127.0.0.1 --port %GGUF_PORT% --ctx-size %GGUF_CTX% --threads %GGUF_THREADS% --gpu-layers %GGUF_N_GPU_LAYERS% --main-gpu %GGUF_MAIN_GPU% --parallel 1 --jinja --chat-template %GGUF_CHAT_TEMPLATE% --no-webui
+    echo if errorlevel 1 echo [WARN] Command exited with code %%%%errorlevel%%%%
+  )
+)
 
 if /I "%TTS_PROVIDER%"=="kokoro" (
   echo [1/5] Preparing Kokoro launcher...
@@ -266,12 +350,23 @@ if "%NO_UI%"=="0" (
 )
 
 if "%DRY_RUN%"=="1" (
+  if /I "%LLM_PROVIDER%"=="gguf" echo [DRY] start "GGUF LLM" cmd /k "%RUNNER_DIR%\gguf_llm.cmd"
   echo [DRY] start "TTS Backend" cmd /k "%RUNNER_DIR%\tts_backend.cmd"
   echo [DRY] start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
   echo [DRY] start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
   echo [DRY] start "Core Backend" cmd /k "%RUNNER_DIR%\core_backend.cmd"
   if "%NO_UI%"=="0" echo [DRY] start "live2d-desktop" cmd /k "%RUNNER_DIR%\live2d_ui.cmd"
   exit /b 0
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" (
+  start "GGUF LLM" cmd /k "%RUNNER_DIR%\gguf_llm.cmd"
+  timeout /t 3 /nobreak >nul
+  call :wait_http "%GGUF_BASE_URL%/models" 45 2
+  if errorlevel 1 (
+    echo [ERROR] GGUF service did not become ready: %GGUF_BASE_URL%/models
+    exit /b 1
+  )
 )
 
 start "TTS Backend" cmd /k "%RUNNER_DIR%\tts_backend.cmd"
@@ -281,9 +376,21 @@ timeout /t 2 /nobreak >nul
 start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
 timeout /t 2 /nobreak >nul
 start "Core Backend" cmd /k "%RUNNER_DIR%\core_backend.cmd"
+call :wait_http "http://127.0.0.1:8080/health" 45 1
+if errorlevel 1 (
+  echo [ERROR] Core backend did not become ready.
+  exit /b 1
+)
 if "%NO_UI%"=="0" (
   timeout /t 2 /nobreak >nul
   start "live2d-desktop" cmd /k "%RUNNER_DIR%\live2d_ui.cmd"
+)
+
+call :wait_http "http://127.0.0.1:8080/health/deps" 60 1
+if errorlevel 1 (
+  echo [WARN] /health/deps not ready yet. Check service windows for details.
+) else (
+  echo [OK] /health/deps is reachable.
 )
 
 echo [OK] All launchers started.
@@ -305,6 +412,16 @@ exit /b 0
 if not exist "%CONFIG_FILE%" exit /b 0
 
 call :yaml_get "TTS_PROVIDER" TTS_PROVIDER
+call :yaml_get "LLM_PROVIDER" LLM_PROVIDER
+call :yaml_get "GGUF_BASE_URL" GGUF_BASE_URL
+call :yaml_get "GGUF_MODEL" GGUF_MODEL
+call :yaml_get "GGUF_MODEL_PATH" GGUF_MODEL_PATH
+call :yaml_get "GGUF_THREADS" GGUF_THREADS
+call :yaml_get "GGUF_N_GPU_LAYERS" GGUF_N_GPU_LAYERS
+call :yaml_get "GGUF_CTX" GGUF_CTX
+call :yaml_get "GGUF_MAIN_GPU" GGUF_MAIN_GPU
+call :yaml_get "GGUF_CHAT_TEMPLATE" GGUF_CHAT_TEMPLATE
+call :yaml_get "GGUF_PORT" GGUF_PORT
 call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
 call :yaml_get "KOKORO_LANG" KOKORO_LANG
 call :yaml_get "KOKORO_SPEED" KOKORO_SPEED
@@ -325,3 +442,33 @@ set "_YAML_KEY="
 set "_YAML_TARGET="
 set "_YAML_VALUE="
 exit /b 0
+
+:wait_http
+set "_WAIT_URL=%~1"
+set "_WAIT_TRIES=%~2"
+set "_WAIT_SLEEP=%~3"
+if not defined _WAIT_TRIES set "_WAIT_TRIES=30"
+if not defined _WAIT_SLEEP set "_WAIT_SLEEP=1"
+set /a _WAIT_I=0
+:wait_http_loop
+set /a _WAIT_I+=1
+curl -fsS "%_WAIT_URL%" >nul 2>nul
+if not errorlevel 1 goto wait_http_ok
+if !_WAIT_I! GEQ !_WAIT_TRIES! goto wait_http_fail
+timeout /t !_WAIT_SLEEP! /nobreak >nul
+goto wait_http_loop
+
+:wait_http_ok
+set "_WAIT_URL="
+set "_WAIT_TRIES="
+set "_WAIT_SLEEP="
+set "_WAIT_I="
+exit /b 0
+
+:wait_http_fail
+echo [WAIT] timeout: %_WAIT_URL%
+set "_WAIT_URL="
+set "_WAIT_TRIES="
+set "_WAIT_SLEEP="
+set "_WAIT_I="
+exit /b 1

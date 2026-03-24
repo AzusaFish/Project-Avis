@@ -49,17 +49,28 @@ async def _tcp_probe(url: str, timeout_sec: float = 0.6) -> dict[str, str | bool
 async def health_deps() -> dict:
     # 依赖可用性检查：服务端口连通 + 关键本地目录存在性。
     """Public API `health_deps` used by other modules or route handlers."""
-    llm_url = settings.ollama_base_url if settings.llm_provider.lower() == "ollama" else settings.llm_base_url
+    provider = settings.llm_provider.lower().strip()
+    if provider == "ollama":
+        llm_url = settings.ollama_base_url
+    elif provider in {"gguf", "llama_cpp"}:
+        llm_url = settings.gguf_base_url
+    else:
+        llm_url = settings.llm_base_url
+    path_checks = {
+        "realtimestt_repo": os.path.exists(settings.realtimestt_repo),
+        "sqlite_parent": os.path.exists(os.path.dirname(settings.sqlite_path) or "."),
+        "chroma_path": os.path.exists(settings.chroma_path),
+    }
+    if settings.tts_provider.lower().strip() == "gpt_sovits":
+        path_checks["gpt_sovits_repo"] = os.path.exists(settings.gpt_sovits_repo)
+    else:
+        path_checks["kokoro_repo"] = os.path.exists(settings.kokoro_repo)
+
     checks = {
         "tts": await _tcp_probe(settings.tts_base_url),
         "stt": await _tcp_probe(settings.stt_base_url),
         "llm": await _tcp_probe(llm_url),
-        "paths": {
-            "gpt_sovits_repo": os.path.exists(settings.gpt_sovits_repo),
-            "realtimestt_repo": os.path.exists(settings.realtimestt_repo),
-            "sqlite_parent": os.path.exists(os.path.dirname(settings.sqlite_path) or "."),
-            "chroma_path": os.path.exists(settings.chroma_path),
-        },
+        "paths": path_checks,
     }
 
     service_ok = all(bool(checks[name].get("ok")) for name in ("tts", "stt", "llm"))
