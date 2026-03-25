@@ -35,8 +35,6 @@ from app.tools.wechat_tool import WeChatSendTool
 
 async def startup(app: FastAPI) -> None:
     # 启动阶段：创建依赖、注册工具并拉起后台任务。
-    # 这里集中创建依赖，便于后续替换具体实现（如不同 STT/TTS 后端）。
-    # C++ 类比：类似在 main() 里做依赖注入，然后把句柄挂到全局上下文。
     # 启动顺序（重要）：
     # 1) 先建存储（SQLite/Chroma）
     # 2) 再建服务与工具

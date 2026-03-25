@@ -47,8 +47,6 @@ for _k, _v in _load_project_yaml().items():
 
 
 class Settings(BaseSettings):
-    # 统一从 .env 读取，避免在代码中硬编码。
-    # C++ 类比：这里像“集中配置结构体 + 从 .env 自动反射赋值”。
     # 规则：
     # 1) alias="APP_NAME" 表示读取环境变量 APP_NAME
     # 2) default=... 表示环境变量缺失时的默认值
@@ -96,7 +94,6 @@ class Settings(BaseSettings):
     context_reserved_for_tools: int = Field(default=800, alias="CONTEXT_RESERVED_FOR_TOOLS")
 
     # ===== 多模态子服务地址 =====
-    # Core 并不直接做 STT/TTS/OCR 推理，而是通过 HTTP 调外部服务。
     tts_base_url: str = Field(default="http://127.0.0.1:9880", alias="TTS_BASE_URL")
     tts_provider: str = Field(default="kokoro", alias="TTS_PROVIDER")
     tts_profile_path: str = Field(default="./configs/tts_profiles.yaml", alias="TTS_PROFILE_PATH")
@@ -151,7 +148,4 @@ class Settings(BaseSettings):
     agent_tick_interval_sec: float = Field(default=0.2, alias="AGENT_TICK_INTERVAL_SEC")
     proactive_silence_sec: int = Field(default=300, alias="PROACTIVE_SILENCE_SEC")
 
-
-# 模块级单例：`from app.core.config import settings` 后全项目共享一份配置对象。
-# 注意：import 时就会读取 .env，所以 .env 变更后通常需要重启进程生效。
 settings = Settings()

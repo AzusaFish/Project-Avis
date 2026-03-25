@@ -16,8 +16,6 @@ from uuid import uuid4
 
 
 class EventType(str, Enum):
-    # 枚举值全部是字符串，便于序列化到 JSON/日志。
-    # 你可以把它理解成“系统内部消息主题（topic）”。
     """EventType: main class container for related behavior in this module."""
     USER_TEXT = "user_text"
     USER_AUDIO_CHUNK = "user_audio_chunk"
@@ -34,7 +32,6 @@ class EventType(str, Enum):
 @dataclass(slots=True)
 class Event:
     # 统一事件实体：所有输入、工具结果、输出都转成此结构。
-    # C++ 类比：可看成“带默认构造字段的轻量 POD + 强类型枚举”。
     # 字段语义：
     # - event_type: 事件类型（决定处理分支）
     # - source: 来源标识（frontend/stt/wechat/...）
