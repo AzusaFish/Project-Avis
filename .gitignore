@@ -56,16 +56,16 @@ Thumbs.db
 # =====================
 Core/.env
 Core/data/
-#Unsloth/Data/
-#Unsloth/avis_lora_model/
-#Unsloth/avis_lora_model_ver1/
-#Unsloth/unsloth_compiled_cache/
-#Unsloth/hf_cache/
-#Unsloth/exports/
+Unsloth/Data/
+Unsloth/avis_lora_model/
+Unsloth/avis_lora_model_ver1/
+Unsloth/unsloth_compiled_cache/
+Unsloth/hf_cache/
+Unsloth/exports/
 Core/models/
 Core/third_party/
 
-Unsloth/
+#Unsloth/
 # =====================
 # Large components and Local Data
 # =====================
@@ -80,3 +80,6 @@ Core/assets/kokoro/*.safetensors
 # Local memory databases
 Core/data/memory.db
 Core/data/chroma/
+
+# Model
+Model/

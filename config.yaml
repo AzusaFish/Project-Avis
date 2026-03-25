@@ -31,8 +31,8 @@ LLM_DEBUG_TO_FRONTEND: true
 
 # GGUF / llama.cpp(OpenAI-compatible server)
 GGUF_BASE_URL: http://127.0.0.1:8081/v1
-GGUF_MODEL: Avis-14B-v1.Q4_K_M.gguf
-GGUF_MODEL_PATH: ./Unsloth/exports/gguf/Avis-14B-v1.Q4_K_M.gguf
+GGUF_MODEL: Avis_ver1.gguf
+GGUF_MODEL_PATH: ./Model/Avis_ver1.gguf
 GGUF_THREADS: 10
 GGUF_N_GPU_LAYERS: 99
 GGUF_CTX: 8192
