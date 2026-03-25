@@ -29,7 +29,6 @@ def parse_model_action(raw_text: str) -> PlannerResult:
     text = raw_text.strip()
     try:
         payload = json.loads(text)
-        # Python 里 dict.get(key, default) 等价于“有则取值，无则给默认值”。
         action_name = payload.get("action", "speak")
         action_type = AgentActionType(action_name)
         action = AgentAction(

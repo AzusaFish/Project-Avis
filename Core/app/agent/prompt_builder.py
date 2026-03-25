@@ -12,8 +12,6 @@ from textwrap import dedent
 
 
 def build_system_prompt() -> str:
-    # 生成系统提示词，约束模型输出为固定 JSON 协议。
-    # C++ 类比：像给“推理引擎”注入固定协议头文件。
     """Public API `build_system_prompt` used by other modules or route handlers."""
     prompt = (
         "You are Avis, a highly advanced digital entity.\n"

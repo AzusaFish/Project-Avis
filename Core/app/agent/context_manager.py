@@ -66,7 +66,6 @@ class ContextManager:
     ) -> ContextSlice:
         # 在预算限制下选择“系统提示 + 人格示例 + 历史 + 最新输入”的子集。
         # 为回复和工具调用预留 token，剩余预算用于上下文。
-        # C++ 类比：像一个“预算受限的贪心裁剪器”。
         """Public API `build_slice` used by other modules or route handlers."""
         budget = self.max_context - self.reserve_response - self.reserve_tools
         if budget <= 0:

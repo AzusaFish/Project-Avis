@@ -82,7 +82,6 @@ class AgentLoop:
 
     async def _emit_assistant_stream(self, text: str) -> None:
         # 将完整文本切分为小块推送前端，实现“边生成边显示”的体验。
-        # C++ 类比：类似把大字符串按块增量 flush 到 UI。
         """Internal helper `_emit_assistant_stream` used by this module implementation."""
         step = max(1, settings.assistant_stream_chunk_chars)
         interval = max(0.0, settings.assistant_stream_interval_ms / 1000.0)
