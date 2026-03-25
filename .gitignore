@@ -70,7 +70,7 @@ Core/third_party/
 # Large components and Local Data
 # =====================
 RealtimeSTT-master/
-Z/
+Used/
 
 # Kokoro large model artifacts (local only)
 Core/assets/kokoro/*.onnx
