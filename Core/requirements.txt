@@ -13,6 +13,7 @@ tenacity>=9.0.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.9
 PyYAML>=6.0.2
+genie-tts>=0.1.0
 kokoro-onnx>=0.4.9
 onnxruntime>=1.19.0
 numpy>=1.26.0
