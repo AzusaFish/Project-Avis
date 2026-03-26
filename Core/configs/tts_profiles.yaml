@@ -13,7 +13,7 @@ speakers:
     text_lang: ja
     prompt_lang: ja
     ref_audio_path: D:/voices/atri/neutral.wav
-    prompt_text: 今天也要一起努力哦。
+    prompt_text: 夏生さんが私を海から引き上げてくれた時、なんとなく予感はしていました。
     text_split_method: cut5
     batch_size: 1
     media_type: wav
