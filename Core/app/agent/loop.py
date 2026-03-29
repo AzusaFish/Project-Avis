@@ -1,4 +1,4 @@
-"""
+﻿"""
 Module: app/agent/loop.py
 
 Beginner note:
@@ -22,6 +22,7 @@ from app.agent.prompt_builder import build_system_prompt
 from app.core.bus import EventBus
 from app.core.config import settings
 from app.core.events import AgentActionType, Event, EventType
+from app.core.time_utils import prepend_user_time
 from app.services.llm_router import LLMRouter
 from app.services.frontend_gateway import FrontendGateway
 from app.services.stt_service import STTService
@@ -244,14 +245,18 @@ class AgentLoop:
         }:
             return
 
-        user_text = event.payload.get("text", "").strip()
-        if not user_text and event.event_type != EventType.SCHEDULE_TICK:
+        raw_user_text = event.payload.get("text", "").strip()
+        if not raw_user_text and event.event_type != EventType.SCHEDULE_TICK:
             return
 
         if event.event_type == EventType.SCHEDULE_TICK:
             # 定时主动话题不依赖用户输入文本。
             user_text = "Silence timeout reached. Start a proactive topic briefly."
         else:
+            if event.event_type in {EventType.USER_TEXT, EventType.WECHAT_MESSAGE, EventType.GAME_STATE}:
+                user_text = prepend_user_time(raw_user_text)
+            else:
+                user_text = raw_user_text
             await self.memory.append_dialogue("user", user_text)
             await self.frontend.broadcast(
                 {
@@ -379,3 +384,4 @@ class AgentLoop:
                     payload={"text": text, "emotion": plan.action.emotion or "neutral"},
                 )
             )
+

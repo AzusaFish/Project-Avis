@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.events import Event, EventType
+from app.core.time_utils import now_payload
 from app.storage.sqlite_store import SQLiteStore
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -106,6 +107,13 @@ async def health() -> dict:
     # Process-level health indicator.
     """Public API `health` used by other modules or route handlers."""
     return ok({"status": "ok"})
+
+
+@router.get("/time/now")
+async def time_now() -> dict:
+    # Return current local time in multiple formats.
+    """Public API `time_now` used by other modules or route handlers."""
+    return ok(now_payload())
 
 
 @router.get("/health/deps")

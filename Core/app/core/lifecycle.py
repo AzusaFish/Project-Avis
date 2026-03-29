@@ -30,6 +30,7 @@ from app.tools.google_search import GoogleSearchTool
 from app.tools.live2d_tool import Live2DControlTool
 from app.tools.registry import ToolRegistry
 from app.tools.sts_tool import SlayTheSpireTool
+from app.tools.time_tool import CurrentTimeTool
 from app.tools.wechat_tool import WeChatSendTool
 
 
@@ -56,6 +57,7 @@ async def startup(app: FastAPI) -> None:
     tools.register(WeChatSendTool())
     tools.register(Live2DControlTool())
     tools.register(SlayTheSpireTool())
+    tools.register(CurrentTimeTool())
 
     agent = AgentLoop(
         bus=bus,
