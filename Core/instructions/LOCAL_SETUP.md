@@ -165,3 +165,120 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_everything.ps1 -TtsProv
 - 统一配置入口（像 `config.template.yaml` 的思路）
 - 模型路由层（按 provider 切换 LLM）
 - 启动前资源可用性检查（像 starter 前的预检）
+
+## 11. Gewechat（Docker Desktop）接入 WeChat
+
+说明：Gewechat 官方仓库当前标注为不再维护，接入前请自行评估可用性与合规风险。
+
+### 11.0 一键启动（推荐）
+
+仓库根目录执行（可重复执行）：
+
+```powershell
+cd D:\AzusaFish\Codes\Development\Project-Avis
+.\start_gewechat.bat
+```
+
+脚本会自动完成：
+
+- 启动/复用 `gewe` 容器
+- 容器内拉起 Redis、MySQL
+- 在正确目录启动 `long`/`pact`
+- 启动 Gewechat API（2531）
+- 自动请求并打印 `GEWECHAT_TOKEN`
+
+注意：如果脚本提示 `Device layer not ready (pact/4600)`，表示 token 可用但设备层未连通（通常会导致 `getLoginQrCode` 返回“创建设备失败”）。
+这不是命令拼写问题，需按脚本输出的诊断命令检查 `pact.log/system.txt`，重点看是否有“无法与设备库进行通信”。
+
+若只想输出 token：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Core\scripts\start_gewechat_bootstrap.ps1 -PrintTokenOnly
+```
+
+### 11.1 启动 Gewechat 容器
+
+```powershell
+docker pull registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
+docker tag registry.cn-hangzhou.aliyuncs.com/gewe/gewe gewe
+mkdir D:\gewechat-temp -Force
+docker run -itd -v D:\gewechat-temp:/root/temp -p 2531:2531 -p 2532:2532 --privileged=true --name gewe gewe /usr/sbin/init
+```
+
+### 11.2 获取 GEWECHAT_TOKEN 与 GEWECHAT_APP_ID
+
+1. 获取 token（记下返回里的 token）。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:2531/v2/api/tools/getTokenId" -H "Content-Type: application/json" -d "{}"
+```
+
+2. 获取登录二维码（首次登录 appId 传空字符串）。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:2531/v2/api/login/getLoginQrCode" -H "Content-Type: application/json" -H "X-GEWE-TOKEN: <你的 token>" -d "{\"appId\":\"\",\"type\":\"ipad\",\"regionId\":\"510000\"}"
+```
+
+常见错误：
+
+- `header:X-GEWE-TOKEN 不可为空`：请求头名写错了，必须是 `X-GEWE-TOKEN`。
+- 例如 `X-GEWE-TOKE`（少了 `N`）会触发该错误。
+
+返回中会有 `appId`、`uuid`、`qrData`。扫描 `qrData` 对应二维码。
+
+3. 轮询确认登录（直到 ret=200 且在线）。
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:2531/v2/api/login/checkLogin" -H "Content-Type: application/json" -H "X-GEWE-TOKEN: <你的 token>" -d "{\"appId\":\"<上一步 appId>\",\"uuid\":\"<上一步 uuid>\",\"captchCode\":\"\"}"
+```
+
+登录成功后，`appId` 就是你要填到 `GEWECHAT_APP_ID` 的值；token 即 `GEWECHAT_TOKEN`。
+
+### 11.3 配置 Project Avis
+
+在仓库根目录 `config.yaml` 设置：
+
+- `WECHAT_BRIDGE_PROVIDER: gewechat`
+- `GEWECHAT_BASE_URL: http://127.0.0.1:2531/v2/api`
+- `GEWECHAT_TOKEN: <你的 token>`
+- `GEWECHAT_APP_ID: <你的 appId>`
+
+你也可以不改文件，直接在启动前用环境变量覆盖同名键。
+
+### 11.4 启动 WeChat bridge
+
+可以直接用一键脚本（已内置 WeChat bridge 启动）：
+
+- 仓库根目录：`start_everything.bat`
+- 或 `Core/scripts/start_everything.ps1`
+
+bridge 默认监听：`http://127.0.0.1:9010`
+
+### 11.5 绑定 Gewechat 回调到 bridge
+
+先测试 bridge：
+
+```powershell
+curl http://127.0.0.1:9010/
+```
+
+然后将 Gewechat 回调地址设置为：
+
+- `http://host.docker.internal:9010/gewechat/callback`
+
+示例（按 Gewechat 常用接口）：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:2531/v2/api/tools/setCallback" -H "Content-Type: application/json" -H "X-GEWE-TOKEN: <你的 token>" -d "{\"token\":\"<你的 token>\",\"callbackUrl\":\"http://host.docker.internal:9010/gewechat/callback\"}"
+```
+
+### 11.6 联调验证
+
+1. 查看 Core 拉取入口：`http://127.0.0.1:9010/poll`
+2. 发送测试消息（走 Core 的工具契约）：
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:9010/send" -H "Content-Type: application/json" -d "{\"to\":\"wxid_xxx\",\"text\":\"hello from avis\"}"
+```
+
+3. 看 `Core` 日志里是否收到 `WECHAT_MESSAGE` 事件。

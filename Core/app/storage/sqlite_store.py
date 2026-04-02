@@ -42,6 +42,13 @@ class SQLiteStore:
             await conn.execute(
                 create_sql
             )
+            await conn.execute(
+                "CREATE TABLE IF NOT EXISTS runtime_meta ("
+                "k TEXT PRIMARY KEY,"
+                "v TEXT NOT NULL,"
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ");"
+            )
             await conn.commit()
 
     async def insert_dialogue(self, role: str, text: str) -> None:
@@ -65,6 +72,47 @@ class SQLiteStore:
         result = [dict(r) for r in rows]
         result.reverse()
         return result
+
+    async def fetch_dialogue_after_id(self, after_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        # 按主键增量读取对话，适合后台总结任务做游标推进。
+        """Public API `fetch_dialogue_after_id` used by other modules or route handlers."""
+        async with aiosqlite.connect(self.path) as conn:
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute(
+                "SELECT id, role, text, created_at FROM dialogue WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (max(0, int(after_id)), max(1, int(limit))),
+            )
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def latest_dialogue_id(self) -> int:
+        # 获取当前最大对话 id，便于计算累计新增轮次。
+        """Public API `latest_dialogue_id` used by other modules or route handlers."""
+        async with aiosqlite.connect(self.path) as conn:
+            cursor = await conn.execute("SELECT COALESCE(MAX(id), 0) FROM dialogue")
+            row = await cursor.fetchone()
+        return int(row[0] if row else 0)
+
+    async def get_meta(self, key: str, default: str = "") -> str:
+        # 读取 runtime_meta 中的字符串键值。
+        """Public API `get_meta` used by other modules or route handlers."""
+        async with aiosqlite.connect(self.path) as conn:
+            cursor = await conn.execute("SELECT v FROM runtime_meta WHERE k = ?", (key,))
+            row = await cursor.fetchone()
+        if not row:
+            return default
+        return str(row[0])
+
+    async def set_meta(self, key: str, value: str) -> None:
+        # 写入 runtime_meta 键值，并更新 updated_at。
+        """Public API `set_meta` used by other modules or route handlers."""
+        async with aiosqlite.connect(self.path) as conn:
+            await conn.execute(
+                "INSERT INTO runtime_meta(k, v) VALUES(?, ?) "
+                "ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = CURRENT_TIMESTAMP",
+                (str(key), str(value)),
+            )
+            await conn.commit()
 
     async def list_dialogue(
         self,

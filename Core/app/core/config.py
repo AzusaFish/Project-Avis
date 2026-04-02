@@ -11,7 +11,7 @@ Beginner note:
 import os
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     ollama_model: str = Field(default="qwen2.5:14b", alias="OLLAMA_MODEL")
     ollama_timeout_sec: int = Field(default=60, alias="OLLAMA_TIMEOUT_SEC")
     ollama_models_dir: str = Field(
-        default=r"C:\Users\AzusaFish\.ollama\models",
+        default=str(Path.home() / ".ollama" / "models"),
         alias="OLLAMA_MODELS_DIR",
     )
 
@@ -117,19 +117,19 @@ class Settings(BaseSettings):
 
     # ===== 本地仓库路径（主要用于 /health/deps 自检展示）=====
     gpt_sovits_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\Project-Avis\GPT-SoVITS-main\GPT-SoVITS-main",
+        default="../GPT-SoVITS-main/GPT-SoVITS-main",
         alias="GPT_SOVITS_REPO",
     )
     kokoro_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\Project-Avis\Core",
+        default=".",
         alias="KOKORO_REPO",
     )
     realtimestt_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\Project-Avis\RealtimeSTT-master\RealtimeSTT-master",
+        default="../RealtimeSTT-master/RealtimeSTT-master",
         alias="REALTIMESTT_REPO",
     )
     reference_core_repo: str = Field(
-        default=r"D:\AzusaFish\Codes\Development\Project-Avis\Z\reference-core-main",
+        default="../Z/reference-core-main",
         alias="REFERENCE_CORE_REPO",
     )
 
@@ -147,5 +147,44 @@ class Settings(BaseSettings):
     # ===== 运行时节奏参数 =====
     agent_tick_interval_sec: float = Field(default=0.2, alias="AGENT_TICK_INTERVAL_SEC")
     proactive_silence_sec: int = Field(default=300, alias="PROACTIVE_SILENCE_SEC")
+
+    # ===== 上下文压缩（伪 KV 压缩） =====
+    kv_compress_enabled: bool = Field(default=True, alias="KV_COMPRESS_ENABLED")
+    kv_compress_trigger_tokens: int = Field(default=2600, alias="KV_COMPRESS_TRIGGER_TOKENS")
+    kv_compress_keep_last_turns: int = Field(default=8, alias="KV_COMPRESS_KEEP_LAST_TURNS")
+    kv_compress_source_messages: int = Field(default=60, alias="KV_COMPRESS_SOURCE_MESSAGES")
+    kv_compress_min_turns: int = Field(default=6, alias="KV_COMPRESS_MIN_TURNS")
+
+    # ===== 异步记忆总结与反思 =====
+    memory_reflect_enabled: bool = Field(default=True, alias="MEMORY_REFLECT_ENABLED")
+    memory_reflect_poll_sec: int = Field(default=45, alias="MEMORY_REFLECT_POLL_SEC")
+    memory_reflect_turn_interval: int = Field(default=100, alias="MEMORY_REFLECT_TURN_INTERVAL")
+    memory_reflect_daily_hour: int = Field(default=3, alias="MEMORY_REFLECT_DAILY_HOUR")
+    memory_reflect_max_scan: int = Field(default=260, alias="MEMORY_REFLECT_MAX_SCAN")
+    memory_reflect_max_notes: int = Field(default=12, alias="MEMORY_REFLECT_MAX_NOTES")
+    memory_recall_top_k: int = Field(default=4, alias="MEMORY_RECALL_TOP_K")
+
+    @model_validator(mode="after")
+    def expand_path_like_fields(self) -> "Settings":
+        """Expand env vars / home shorthand in path-like settings."""
+        path_fields = (
+            "ollama_models_dir",
+            "tts_profile_path",
+            "kokoro_model_path",
+            "kokoro_voices_path",
+            "gpt_sovits_repo",
+            "kokoro_repo",
+            "realtimestt_repo",
+            "reference_core_repo",
+            "sqlite_path",
+            "chroma_path",
+        )
+        for field_name in path_fields:
+            raw = getattr(self, field_name, "")
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            expanded = os.path.expandvars(os.path.expanduser(raw.strip()))
+            setattr(self, field_name, expanded)
+        return self
 
 settings = Settings()

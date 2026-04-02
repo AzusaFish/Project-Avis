@@ -4,17 +4,34 @@ param(
     [string]$RealtimeSttEnv = "base",
     [ValidateSet("kokoro", "gpt_sovits")]
     [string]$TtsProvider = "kokoro",
-    [string]$CondaRoot = "D:\AzusaFish\Codes\Development\Project-Avis\.conda",
-    [string]$KokoroDir = "D:\AzusaFish\Codes\Development\Project-Avis\Core",
-    [string]$KokoroLaunchCmd = "python -m kokoro_fastapi --host 127.0.0.1 --port 9880"
+    [string]$CondaRoot = "",
+    [string]$KokoroDir = "",
+    [string]$KokoroLaunchCmd = "python -m kokoro_fastapi --host 127.0.0.1 --port 9880",
+    [bool]$EnableWechatBridge = $true,
+    [ValidateSet("local", "gewechat", "wcferry", "itchat")]
+    [string]$WechatProvider = "local",
+    [int]$WechatBridgePort = 9010,
+    [string]$GewechatBaseUrl = "http://127.0.0.1:2531/v2/api",
+    [string]$GewechatToken = "",
+    [string]$GewechatAppId = "",
+    [string]$GewechatAts = "[]",
+    [int]$ItchatEnableCmdQr = 2,
+    [bool]$ItchatHotReload = $false
 )
 
 # Start all local services in separate PowerShell windows.
 
-$coreDir = "D:\AzusaFish\Codes\Development\Project-Avis\Core"
-$gptDir = "D:\AzusaFish\Codes\Development\Project-Avis\GPT-SoVITS-main\GPT-SoVITS-main"
-$sttDir = "D:\AzusaFish\Codes\Development\Project-Avis\RealtimeSTT-master\RealtimeSTT-master"
-$uiDir = "D:\AzusaFish\Codes\Development\Project-Avis\live2d-desktop"
+$coreDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoDir = (Resolve-Path (Join-Path $coreDir "..")).Path
+if (-not $CondaRoot) {
+    $CondaRoot = Join-Path $repoDir ".conda"
+}
+if (-not $KokoroDir) {
+    $KokoroDir = $coreDir
+}
+$gptDir = Join-Path $repoDir "GPT-SoVITS-main\GPT-SoVITS-main"
+$sttDir = Join-Path $repoDir "RealtimeSTT-master\RealtimeSTT-master"
+$uiDir = Join-Path $repoDir "live2d-desktop"
 
 $CondaHook = Join-Path $CondaRoot "shell\condabin\conda-hook.ps1"
 if (-not (Test-Path $CondaHook)) {
@@ -33,22 +50,14 @@ function Start-InCondaWindow {
 `$Host.UI.RawUI.WindowTitle = '$Title'
 Set-Location '$WorkDir'
 & '$CondaHook'
-$requestedEnv = '$EnvName'
-$envNames = @()
-try {
-    $envJson = conda env list --json | ConvertFrom-Json
-    if ($envJson -and $envJson.envs) {
-        $envNames = $envJson.envs | ForEach-Object { Split-Path $_ -Leaf }
-    }
-} catch {
-    Write-Host "Failed to read conda env list, fallback to base." -ForegroundColor Yellow
-}
+`$requestedEnv = '$EnvName'
 
-if ($requestedEnv -and ($envNames -contains $requestedEnv)) {
-    Write-Host "Activating conda env: $requestedEnv" -ForegroundColor Cyan
-    conda activate "$requestedEnv"
-} else {
-    Write-Host "Conda env '$requestedEnv' not found, fallback to base." -ForegroundColor Yellow
+if (`$requestedEnv) {
+    Write-Host "Activating conda env: `$requestedEnv" -ForegroundColor Cyan
+    conda activate "`$requestedEnv"
+}
+if (`$LASTEXITCODE -ne 0) {
+    Write-Host "Conda activate failed, fallback to base." -ForegroundColor Yellow
     conda activate base
 }
 
@@ -99,6 +108,22 @@ Start-InCondaWindow -Title "RealtimeSTT" -EnvName $RealtimeSttEnv -WorkDir $sttD
 
 Write-Host "Launching RealtimeSTT HTTP bridge..."
 Start-InCondaWindow -Title "STT Bridge" -EnvName $CoreEnv -WorkDir $coreDir -Command "python bridges/realtimestt_http_bridge.py"
+
+if ($EnableWechatBridge) {
+    Write-Host "Launching WeChat bridge..."
+    $wechatLaunch = @"
+`$env:WECHAT_BRIDGE_PROVIDER = '$WechatProvider'
+`$env:WECHAT_BRIDGE_PORT = '$WechatBridgePort'
+`$env:GEWECHAT_BASE_URL = '$GewechatBaseUrl'
+`$env:GEWECHAT_TOKEN = '$GewechatToken'
+`$env:GEWECHAT_APP_ID = '$GewechatAppId'
+`$env:GEWECHAT_ATS = '$GewechatAts'
+`$env:ITCHAT_ENABLE_CMD_QR = '$ItchatEnableCmdQr'
+`$env:ITCHAT_HOT_RELOAD = '$ItchatHotReload'
+python bridges/wechat_http_bridge.py
+"@
+    Start-InCondaWindow -Title "WeChat Bridge" -EnvName $CoreEnv -WorkDir $coreDir -Command $wechatLaunch
+}
 
 Write-Host "Launching Core backend..."
 Start-InCondaWindow -Title "Core Backend" -EnvName $CoreEnv -WorkDir $coreDir -Command "uvicorn app.main:app --host 0.0.0.0 --port 8080"

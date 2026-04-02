@@ -21,6 +21,11 @@ set "GGUF_PORT=8081"
 set "LLAMA_SERVER_EXE="
 set "GGUF_MAIN_GPU=0"
 set "GGUF_CHAT_TEMPLATE=chatml"
+set "WECHAT_BRIDGE_PROVIDER=local"
+set "GEWECHAT_BASE_URL=http://127.0.0.1:2531/v2/api"
+set "GEWECHAT_TOKEN="
+set "GEWECHAT_APP_ID="
+set "GEWECHAT_ATS=[]"
 
 call :load_config_defaults
 
@@ -260,6 +265,7 @@ if "%DRY_RUN%"=="0" if "%CLEAN_PORTS%"=="1" (
   if /I "%LLM_PROVIDER%"=="gguf" call :kill_port %GGUF_PORT%
   call :kill_port 8080
   call :kill_port 9000
+  call :kill_port 9010
   call :kill_port 9880
   call :kill_port 8011
   call :kill_port 8012
@@ -327,7 +333,22 @@ echo [3/5] Preparing STT bridge launcher...
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
 
-echo [4/5] Preparing Core backend launcher...
+echo [4/6] Preparing WeChat bridge launcher...
+> "%RUNNER_DIR%\wechat_bridge.cmd" (
+  echo @echo off
+  echo title WeChat Bridge
+  echo cd /d "%CORE_DIR%"
+  echo set "CUDA_VISIBLE_DEVICES=-1"
+  echo set "WECHAT_BRIDGE_PROVIDER=%WECHAT_BRIDGE_PROVIDER%"
+  echo set "GEWECHAT_BASE_URL=%GEWECHAT_BASE_URL%"
+  echo set "GEWECHAT_TOKEN=%GEWECHAT_TOKEN%"
+  echo set "GEWECHAT_APP_ID=%GEWECHAT_APP_ID%"
+  echo set "GEWECHAT_ATS=%GEWECHAT_ATS%"
+  echo "%UV_EXE%" --directory "%CORE_DIR%" run python bridges\wechat_http_bridge.py
+  echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
+)
+
+echo [5/6] Preparing Core backend launcher...
 > "%RUNNER_DIR%\core_backend.cmd" (
   echo @echo off
   echo title Core Backend
@@ -338,7 +359,7 @@ echo [4/5] Preparing Core backend launcher...
 )
 
 if "%NO_UI%"=="0" (
-  echo [5/5] Preparing Live2D frontend launcher...
+  echo [6/6] Preparing Live2D frontend launcher...
   > "%RUNNER_DIR%\live2d_ui.cmd" (
     echo @echo off
     echo title live2d-desktop
@@ -354,6 +375,7 @@ if "%DRY_RUN%"=="1" (
   echo [DRY] start "TTS Backend" cmd /k "%RUNNER_DIR%\tts_backend.cmd"
   echo [DRY] start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
   echo [DRY] start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
+  echo [DRY] start "WeChat Bridge" cmd /k "%RUNNER_DIR%\wechat_bridge.cmd"
   echo [DRY] start "Core Backend" cmd /k "%RUNNER_DIR%\core_backend.cmd"
   if "%NO_UI%"=="0" echo [DRY] start "live2d-desktop" cmd /k "%RUNNER_DIR%\live2d_ui.cmd"
   exit /b 0
@@ -374,6 +396,8 @@ timeout /t 2 /nobreak >nul
 start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
 timeout /t 2 /nobreak >nul
 start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
+timeout /t 2 /nobreak >nul
+start "WeChat Bridge" cmd /k "%RUNNER_DIR%\wechat_bridge.cmd"
 timeout /t 2 /nobreak >nul
 start "Core Backend" cmd /k "%RUNNER_DIR%\core_backend.cmd"
 call :wait_http "http://127.0.0.1:8080/health" 45 1
@@ -422,6 +446,11 @@ call :yaml_get "GGUF_CTX" GGUF_CTX
 call :yaml_get "GGUF_MAIN_GPU" GGUF_MAIN_GPU
 call :yaml_get "GGUF_CHAT_TEMPLATE" GGUF_CHAT_TEMPLATE
 call :yaml_get "GGUF_PORT" GGUF_PORT
+call :yaml_get "WECHAT_BRIDGE_PROVIDER" WECHAT_BRIDGE_PROVIDER
+call :yaml_get "GEWECHAT_BASE_URL" GEWECHAT_BASE_URL
+call :yaml_get "GEWECHAT_TOKEN" GEWECHAT_TOKEN
+call :yaml_get "GEWECHAT_APP_ID" GEWECHAT_APP_ID
+call :yaml_get "GEWECHAT_ATS" GEWECHAT_ATS
 call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
 call :yaml_get "KOKORO_LANG" KOKORO_LANG
 call :yaml_get "KOKORO_SPEED" KOKORO_SPEED

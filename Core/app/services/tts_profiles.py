@@ -10,6 +10,7 @@ Beginner note:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -46,9 +47,20 @@ class TTSProfiles:
             override = by_emotion.get(emotion, {})
             if isinstance(override, dict):
                 base.update(override)
+        ref_audio = base.get("ref_audio_path")
+        if isinstance(ref_audio, str) and ref_audio.strip():
+            base["ref_audio_path"] = self._resolve_path(ref_audio)
         return base
 
     def default_speaker(self) -> str:
         """Public API `default_speaker` used by other modules or route handlers."""
         value = str(self.data.get("default_speaker", "")).strip()
         return value
+
+    def _resolve_path(self, raw_path: str) -> str:
+        """Resolve env/home placeholders and make relative paths anchor to profile dir."""
+        expanded = os.path.expandvars(os.path.expanduser(raw_path.strip()))
+        candidate = Path(expanded)
+        if not candidate.is_absolute():
+            candidate = (self.path.parent / candidate).resolve()
+        return str(candidate)

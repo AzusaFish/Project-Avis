@@ -565,6 +565,23 @@ wheels = [
 ]
 
 [[package]]
+name = "grpcio-tools"
+version = "1.78.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8b/d1/cbefe328653f746fd319c4377836a25ba64226e41c6a1d7d5cdbc87a459f/grpcio_tools-1.78.0.tar.gz", hash = "sha256:4b0dd86560274316e155d925158276f8564508193088bc43e20d3f5dff956b2b", size = 5393026, upload-time = "2026-02-06T09:59:59.53Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/55/3fbf6b26ab46fc79e1e6f7f4e0993cf540263dad639290299fad374a0829/grpcio_tools-1.78.0-cp311-cp311-win32.whl", hash = "sha256:28f71f591f7f39555863ced84fcc209cbf4454e85ef957232f43271ee99af577", size = 993804, upload-time = "2026-02-06T09:58:13.698Z" },
+    { url = "https://files.pythonhosted.org/packages/73/86/4affe006d9e1e9e1c6653d6aafe2f8b9188acb2b563cd8ed3a2c7c0e8aec/grpcio_tools-1.78.0-cp311-cp311-win_amd64.whl", hash = "sha256:5a6de495dabf86a3b40b9a7492994e1232b077af9d63080811838b781abbe4e8", size = 1158566, upload-time = "2026-02-06T09:58:15.721Z" },
+    { url = "https://files.pythonhosted.org/packages/95/d2/6391b241ad571bc3e71d63f957c0b1860f0c47932d03c7f300028880f9b8/grpcio_tools-1.78.0-cp312-cp312-win32.whl", hash = "sha256:2250e8424c565a88573f7dc10659a0b92802e68c2a1d57e41872c9b88ccea7a6", size = 993493, upload-time = "2026-02-06T09:58:37.242Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/8f/7d0d3a39ecad76ccc136be28274daa660569b244fa7d7d0bbb24d68e5ece/grpcio_tools-1.78.0-cp312-cp312-win_amd64.whl", hash = "sha256:217d1fa29de14d9c567d616ead7cb0fef33cde36010edff5a9390b00d52e5094", size = 1158423, upload-time = "2026-02-06T09:58:40.072Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1003,6 +1020,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "tiktoken" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "wcferry", marker = "sys_platform == 'win32'" },
     { name = "websockets" },
 ]
 
@@ -1035,6 +1053,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=9.0.0" },
     { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+    { name = "wcferry", marker = "sys_platform == 'win32'" },
     { name = "websockets", specifier = ">=13.0" },
 ]
 
@@ -1673,6 +1692,24 @@ wheels = [
 ]
 
 [[package]]
+name = "pynng"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+    { name = "sniffio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/58/ec352db5f82a3fe56856fa9510dd051cdfba03c490dd58c0bbca0bdf7771/pynng-0.9.0.tar.gz", hash = "sha256:fcd839abf82a2934fa8c27ff57b574b41810458e35895bac6288814defa8fb4e", size = 7211228, upload-time = "2026-02-04T17:13:23.758Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/37/47afc2f776b9f8143318ca3b54cbaa130615a5bc1e408ede30127c26545e/pynng-0.9.0-cp311-cp311-win32.whl", hash = "sha256:3cd5bac4096a372be18cf7dc7ebe2b3a1669e10ff4f23e462af97ccb54333e98", size = 444433, upload-time = "2026-02-04T17:12:11.615Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/ef/40c0be1a2031a342866e0adb9ac4c2b486c7a54f602a100cb85f8a9903d6/pynng-0.9.0-cp311-cp311-win_amd64.whl", hash = "sha256:6fbde97465d2c5e9444829ced41efb6be67c388be6e2f0a4c77adba466ed4e46", size = 542747, upload-time = "2026-02-04T17:12:13.051Z" },
+    { url = "https://files.pythonhosted.org/packages/61/7b/bb2926eb9f79888ff84dc902b720dea1d1cb254143c626ccdb1f0419cc96/pynng-0.9.0-cp311-cp311-win_arm64.whl", hash = "sha256:38396699e172f63d06eb5fbf5b14fa00ef1c09eee16113957b4fb46dcf1f71eb", size = 479474, upload-time = "2026-02-04T17:12:14.214Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/5e/c12ec0ffeeb821bd6397e219a924ac8398e7d94baca38e3fe83c42da302a/pynng-0.9.0-cp312-cp312-win32.whl", hash = "sha256:1d964829641d169c978ffa4c63940b97729493662d487ff5cc20d9175d63a054", size = 444459, upload-time = "2026-02-04T17:12:24.815Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/c6/112a6c44020bad15054d3e0654977b92bbaf793ab32dc6455027d0a44fbe/pynng-0.9.0-cp312-cp312-win_amd64.whl", hash = "sha256:23129170829c9aa682b23000737b4a45c6700a703114a60bb8ed2562872c88c9", size = 542609, upload-time = "2026-02-04T17:12:25.92Z" },
+    { url = "https://files.pythonhosted.org/packages/94/8a/0ef201e8090e522b3c2a56465416d7b7ea30268fd18ede8b8c750f0a0f61/pynng-0.9.0-cp312-cp312-win_arm64.whl", hash = "sha256:7911287becc00d2c195d040473e0359c69f20609262960379966cb754e119d52", size = 479390, upload-time = "2026-02-04T17:12:27.115Z" },
+]
+
+[[package]]
 name = "pyopenjtalk-plus"
 version = "0.4.1.post7"
 source = { registry = "https://pypi.org/simple" }
@@ -2133,6 +2170,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sniffio"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
+]
+
+[[package]]
 name = "sounddevice"
 version = "0.5.5"
 source = { registry = "https://pypi.org/simple" }
@@ -2588,6 +2634,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/95/615e72cd27b85b61eec764a5ca51bd94d40b5adea5ff47567d9ebc4d275a/watchfiles-1.1.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:89eef07eee5e9d1fda06e38822ad167a044153457e6fd997f8a858ab7564a336", size = 396117, upload-time = "2025-10-14T15:06:11.28Z" },
     { url = "https://files.pythonhosted.org/packages/c9/81/e7fe958ce8a7fb5c73cc9fb07f5aeaf755e6aa72498c57d760af760c91f8/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ce19e06cbda693e9e7686358af9cd6f5d61312ab8b00488bc36f5aabbaf77e24", size = 450493, upload-time = "2025-10-14T15:06:12.321Z" },
     { url = "https://files.pythonhosted.org/packages/6e/d4/ed38dd3b1767193de971e694aa544356e63353c33a85d948166b5ff58b9e/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3e6f39af2eab0118338902798b5aa6664f46ff66bc0280de76fca67a7f262a49", size = 457546, upload-time = "2025-10-14T15:06:13.372Z" },
+]
+
+[[package]]
+name = "wcferry"
+version = "39.5.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio-tools" },
+    { name = "pynng" },
+    { name = "requests" },
+    { name = "setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/87/c8/4ff24f3aaae89ec2d8ed4624ebfde6f106a6ace78c05b409ae52d8ccbb72/wcferry-39.5.2.0.tar.gz", hash = "sha256:780d190b9492e53033ee0c0a995982385927a20aa4a7c7aa5f5fdd34242bfdb9", size = 1822998, upload-time = "2025-04-29T16:37:11.277Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/e1/dc82fa60e34705e1ea46e064d1d85897caaa0f692c0f81107fff9a659c1c/wcferry-39.5.2.0-py3-none-any.whl", hash = "sha256:aefd5a493b52c07915b2a2d44d90a39d51a275bde885d2373c759f1d6488cf2a", size = 1828702, upload-time = "2025-04-29T16:37:05.245Z" },
 ]
 
 [[package]]

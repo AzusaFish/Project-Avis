@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Avis Config</title>
+  <style>
+    body { font-family: Segoe UI, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    .bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    input, button { border-radius: 8px; border: 1px solid #334155; padding: 8px 10px; background: #111827; color: #e2e8f0; }
+    button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
+    button.secondary { background: #111827; border-color: #334155; }
+    .hint { color: #94a3b8; font-size: 13px; margin: 8px 0 14px; }
+    table { width: 100%; border-collapse: collapse; background: #111827; border: 1px solid #334155; }
+    th, td { border-bottom: 1px solid #1f2937; padding: 8px; text-align: left; font-size: 13px; }
+    th { background: #0b1220; position: sticky; top: 0; }
+    td input { width: 100%; box-sizing: border-box; }
+    .status { margin-left: auto; color: #93c5fd; align-self: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Config Editor</h1>
+    <div class="bar">
+      <input id="baseUrl" value="http://127.0.0.1:8080" style="min-width: 280px" />
+      <input id="filter" placeholder="Filter key..." />
+      <button id="reloadBtn" class="secondary">Reload</button>
+      <button id="saveBtn">Save Changes</button>
+      <span id="status" class="status"></span>
+    </div>
+    <div class="hint">This page edits project config.yaml through <code>/api/v1/config</code>. Core restart is recommended after save.</div>
+    <table>
+      <thead><tr><th style="width: 36%">Key</th><th>Value</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const baseUrlInput = document.getElementById('baseUrl');
+    const filterInput = document.getElementById('filter');
+    const rowsEl = document.getElementById('rows');
+    const statusEl = document.getElementById('status');
+
+    let original = {};
+    let edited = {};
+
+    const getBase = () => (baseUrlInput.value || 'http://127.0.0.1:8080').replace(/\/$/, '');
+
+    function setStatus(msg) {
+      statusEl.textContent = msg || '';
+    }
+
+    function render() {
+      const keyword = (filterInput.value || '').trim().toLowerCase();
+      const keys = Object.keys(edited).sort();
+      rowsEl.innerHTML = '';
+      for (const key of keys) {
+        if (keyword && !key.toLowerCase().includes(keyword)) continue;
+        const tr = document.createElement('tr');
+        const tdKey = document.createElement('td');
+        tdKey.textContent = key;
+        const tdVal = document.createElement('td');
+        const input = document.createElement('input');
+        input.value = String(edited[key] ?? '');
+        input.addEventListener('input', () => { edited[key] = input.value; });
+        tdVal.appendChild(input);
+        tr.appendChild(tdKey);
+        tr.appendChild(tdVal);
+        rowsEl.appendChild(tr);
+      }
+    }
+
+    async function reloadConfig() {
+      setStatus('Loading...');
+      const resp = await fetch(`${getBase()}/api/v1/config`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const payload = await resp.json();
+      original = payload?.data?.items || {};
+      edited = { ...original };
+      render();
+      setStatus(`Loaded ${Object.keys(edited).length} keys`);
+    }
+
+    async function saveConfig() {
+      const changed = {};
+      for (const [k, v] of Object.entries(edited)) {
+        if (String(v) !== String(original[k] ?? '')) changed[k] = v;
+      }
+      if (Object.keys(changed).length === 0) {
+        setStatus('No changes');
+        return;
+      }
+      setStatus('Saving...');
+      const resp = await fetch(`${getBase()}/api/v1/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: changed }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const payload = await resp.json();
+      original = { ...edited };
+      setStatus(`Saved ${payload?.data?.updated?.length || 0} keys. Restart Core recommended.`);
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', () => reloadConfig().catch(e => setStatus(String(e))));
+    document.getElementById('saveBtn').addEventListener('click', () => saveConfig().catch(e => setStatus(String(e))));
+    filterInput.addEventListener('input', render);
+
+    reloadConfig().catch(e => setStatus(String(e)));
+  </script>
+</body>
+</html>

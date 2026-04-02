@@ -3,25 +3,30 @@ param(
     [switch]$StartCoreOnly
 )
 
+$coreDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoDir = (Resolve-Path (Join-Path $coreDir "..")).Path
+$gptDir = Join-Path $repoDir "GPT-SoVITS-main\GPT-SoVITS-main"
+$sttDir = Join-Path $repoDir "RealtimeSTT-master\RealtimeSTT-master"
+
 Write-Host "[1/4] Checking Ollama model..."
 ollama list
 
 if (-not $StartCoreOnly) {
     Write-Host "[2/4] Start GPT-SoVITS in another terminal:"
-    Write-Host "cd D:\AzusaFish\Codes\Development\Project-Avis\GPT-SoVITS-main\GPT-SoVITS-main"
+    Write-Host "cd $gptDir"
     Write-Host "python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml"
 
     Write-Host "[3/5] Start RealtimeSTT in another terminal:"
-    Write-Host "cd D:\AzusaFish\Codes\Development\Project-Avis\RealtimeSTT-master\RealtimeSTT-master"
+    Write-Host "cd $sttDir"
     Write-Host "stt-server -m small -l zh -c 8011 -d 8012"
 
     Write-Host "[4/5] Start STT ws->http bridge in another terminal:"
-    Write-Host "cd D:\AzusaFish\Codes\Development\Project-Avis\Core"
+    Write-Host "cd $coreDir"
     Write-Host "python bridges/realtimestt_http_bridge.py"
 }
 
 Write-Host "[5/5] Start Core"
-Set-Location D:\AzusaFish\Codes\Development\Project-Avis\Core
+Set-Location $coreDir
 if (-not (Test-Path .env)) {
     Copy-Item .env.example .env
 }

@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from app.agent.loop import AgentLoop
 from app.agent.memory import MemoryFacade
+from app.agent.memory_reflector import MemoryReflector
 from app.core.bus import EventBus
 from app.inputs.scheduler import proactive_scheduler
 from app.inputs.sts_bridge import sts_state_watcher
@@ -68,6 +69,7 @@ async def startup(app: FastAPI) -> None:
         tools=tools,
         frontend=frontend,
     )
+    reflector = MemoryReflector(memory=memory, llm=llm)
 
     # app.state 是 FastAPI 的运行时共享上下文，等价“全局服务容器”。
     app.state.bus = bus
@@ -75,6 +77,7 @@ async def startup(app: FastAPI) -> None:
     app.state.llm = llm
     app.state.frontend = frontend
     app.state.sqlite = sqlite
+    app.state.reflector = reflector
     # `create_task` 会把协程挂到事件循环后台持续运行，类似“长期工作线程”。
     app.state.tasks = [
         # Agent 主循环：消费 EventBus 并执行业务链路。
@@ -85,6 +88,8 @@ async def startup(app: FastAPI) -> None:
         asyncio.create_task(sts_state_watcher(bus), name="sts_watcher"),
         # 定时器：静默过久时投递主动发话事件。
         asyncio.create_task(proactive_scheduler(bus), name="scheduler"),
+        # 后台记忆总结与反思：定期提炼长期记忆并写入 Chroma。
+        asyncio.create_task(reflector.run_forever(), name="memory_reflector"),
     ]
 
 
@@ -97,6 +102,9 @@ async def shutdown(app: FastAPI) -> None:
     # 3) gather 等待退出，吞掉取消异常
     """Public API `shutdown` used by other modules or route handlers."""
     app.state.agent.stop()
+    reflector = getattr(app.state, "reflector", None)
+    if reflector is not None:
+        reflector.stop()
     for task in app.state.tasks:
         task.cancel()
     # return_exceptions=True: 避免某个任务抛错导致其它任务无法回收。

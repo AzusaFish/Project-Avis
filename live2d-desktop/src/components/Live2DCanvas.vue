@@ -27,6 +27,7 @@ function setCanvasRef(el: any) {
 
 let app: PIXI.Application | null = null
 let model: InstanceType<typeof Live2DModel> | null = null
+let expressionNames: string[] = []
 let dragging = false
 let dragStartX = 0
 let dragStartY = 0
@@ -45,6 +46,7 @@ async function loadModel(path: string) {
     app.stage.removeChild(model as any)
     model.destroy()
     model = null
+    expressionNames = []
   }
   if (!path) return
 
@@ -57,6 +59,12 @@ async function loadModel(path: string) {
     }
 
     model = await Live2DModel.from(url, { autoInteract: false })
+    const settingExpr = (model as any)?.internalModel?.settings?.expressions
+    if (Array.isArray(settingExpr)) {
+      expressionNames = settingExpr
+        .map((x: any) => String(x?.Name || x?.name || x?.File || x?.file || '').trim())
+        .filter(Boolean)
+    }
     model.scale.set(scale.value)
     model.x = (app.screen.width / 2) + offsetX.value
     model.y = (app.screen.height / 2) + offsetY.value
@@ -164,13 +172,49 @@ function setExpression(nameOrIndex: string | number) {
   // 对外暴露的表情接口：支持表情名或索引。
   if (!model) return
   try {
-    model.expression(nameOrIndex)
+    if (typeof nameOrIndex === 'number') {
+      if (expressionNames.length > 0) {
+        const idx = ((Math.floor(nameOrIndex) % expressionNames.length) + expressionNames.length) % expressionNames.length
+        model.expression(idx)
+      } else {
+        model.expression(nameOrIndex)
+      }
+      return
+    }
+
+    const name = String(nameOrIndex || '').trim()
+    if (!name) return
+    const lower = name.toLowerCase()
+    const matchedIndex = expressionNames.findIndex((x) => {
+      const e = x.toLowerCase()
+      return e === lower || e.includes(lower) || lower.includes(e)
+    })
+    if (matchedIndex >= 0) {
+      model.expression(matchedIndex)
+      return
+    }
+    model.expression(name)
   } catch (e) {
     console.warn(`[Live2D] expression "${nameOrIndex}" failed:`, e)
   }
 }
 
-defineExpose({ playMotion, setExpression })
+function setMouthOpen(value: number) {
+  // 通过 ParamMouthOpenY/ParamMouthForm 驱动口型，范围 [0, 1]。
+  if (!model) return
+  const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
+  try {
+    const core = (model as any)?.internalModel?.coreModel
+    if (core && typeof core.setParameterValueById === 'function') {
+      core.setParameterValueById('ParamMouthOpenY', v)
+      core.setParameterValueById('ParamMouthForm', (v - 0.5) * 0.6)
+    }
+  } catch (e) {
+    console.warn('[Live2D] set mouth param failed:', e)
+  }
+}
+
+defineExpose({ playMotion, setExpression, setMouthOpen })
 </script>
 
 <template>

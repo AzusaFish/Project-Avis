@@ -56,16 +56,17 @@ Thumbs.db
 # =====================
 Core/.env
 Core/data/
-Unsloth/Data/
-Unsloth/avis_lora_model/
-Unsloth/avis_lora_model_ver1/
-Unsloth/unsloth_compiled_cache/
-Unsloth/hf_cache/
-Unsloth/exports/
+Tuning/Unsloth/Data/
+Tuning/Unsloth/avis_lora_model/
+Tuning/Unsloth/avis_lora_model_ver1/
+Tuning/Unsloth/unsloth_compiled_cache/
+Tuning/Unsloth/hf_cache/
+Tuning/Unsloth/exports/
 Core/models/
 Core/third_party/
 
 #Unsloth/
+Tuning/
 # =====================
 # Large components and Local Data
 # =====================

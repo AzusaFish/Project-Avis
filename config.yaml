@@ -43,7 +43,7 @@ GGUF_CHAT_TEMPLATE: chatml
 OLLAMA_BASE_URL: http://127.0.0.1:11434
 OLLAMA_MODEL: qwen2.5:14b
 OLLAMA_TIMEOUT_SEC: 60
-OLLAMA_MODELS_DIR: C:/Users/AzusaFish/.ollama/models
+OLLAMA_MODELS_DIR: %USERPROFILE%/.ollama/models
 
 # Token budget policy
 CONTEXT_RESERVED_FOR_RESPONSE: 700
@@ -73,13 +73,18 @@ OCR_BASE_URL: http://127.0.0.1:9001
 VISION_BASE_URL: http://127.0.0.1:9002
 
 # Local repositories
-GPT_SOVITS_REPO: D:/AzusaFish/Codes/Development/Project-Avis/GPT-SoVITS-main/GPT-SoVITS-main
-KOKORO_REPO: D:/AzusaFish/Codes/Development/Project-Avis/Core
-REALTIMESTT_REPO: D:/AzusaFish/Codes/Development/Project-Avis/RealtimeSTT-master/RealtimeSTT-master
-REFERENCE_CORE_REPO: D:/AzusaFish/Codes/Development/Project-Avis/Z/reference-core-main
+GPT_SOVITS_REPO: ../GPT-SoVITS-main/GPT-SoVITS-main
+KOKORO_REPO: .
+REALTIMESTT_REPO: ../RealtimeSTT-master/RealtimeSTT-master
+REFERENCE_CORE_REPO: ../Z/reference-core-main
 
 # Bridges
-WECHAT_BRIDGE_URL: http://127.0.0.1:9010
+WECHAT_BRIDGE_URL: http://127.0.0.1:9015
+WECHAT_BRIDGE_PROVIDER: itchat
+GEWECHAT_BASE_URL: https://api.geweapi.com/gewe/v2/api
+GEWECHAT_TOKEN:
+GEWECHAT_APP_ID:
+GEWECHAT_ATS: []
 STS_BRIDGE_URL: http://127.0.0.1:9011
 SEARCH_API_URL: http://127.0.0.1:9012/search
 
@@ -92,6 +97,22 @@ MEMORY_COLLECTION: long_term_memory
 # Runtime
 AGENT_TICK_INTERVAL_SEC: 0.2
 PROACTIVE_SILENCE_SEC: 300
+
+# Context Compression (pseudo KV compression)
+KV_COMPRESS_ENABLED: true
+KV_COMPRESS_TRIGGER_TOKENS: 2600
+KV_COMPRESS_KEEP_LAST_TURNS: 8
+KV_COMPRESS_SOURCE_MESSAGES: 60
+KV_COMPRESS_MIN_TURNS: 6
+
+# Async memory reflection
+MEMORY_REFLECT_ENABLED: true
+MEMORY_REFLECT_POLL_SEC: 45
+MEMORY_REFLECT_TURN_INTERVAL: 100
+MEMORY_REFLECT_DAILY_HOUR: 3
+MEMORY_REFLECT_MAX_SCAN: 260
+MEMORY_REFLECT_MAX_NOTES: 12
+MEMORY_RECALL_TOP_K: 4
 
 # STT bridge runtime
 STT_BRIDGE_HOST: 127.0.0.1

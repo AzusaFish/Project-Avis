@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Avis Debug</title>
+  <style>
+    body { font-family: Segoe UI, sans-serif; background: #020617; color: #e2e8f0; margin: 0; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    .bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    input, button, textarea { border-radius: 8px; border: 1px solid #334155; padding: 8px 10px; background: #0f172a; color: #e2e8f0; }
+    button { cursor: pointer; background: #0ea5e9; border-color: #0ea5e9; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 0; }
+    #status { color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Debug Dashboard</h1>
+    <div class="bar">
+      <input id="baseUrl" value="http://127.0.0.1:8080" style="min-width: 280px" />
+      <button id="refreshBtn">Refresh</button>
+      <button id="autoBtn">Auto: Off</button>
+      <span id="status"></span>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px;">
+      <div style="margin-bottom: 8px;">Inject text to agent</div>
+      <textarea id="injectText" rows="3" style="width:100%" placeholder="Type text and send..."></textarea>
+      <div style="margin-top: 8px;"><button id="injectBtn">Send</button></div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h3>/health</h3><pre id="health"></pre></div>
+      <div class="card"><h3>/health/deps</h3><pre id="deps"></pre></div>
+      <div class="card"><h3>/api/v1/debug/snapshot</h3><pre id="snapshot"></pre></div>
+      <div class="card"><h3>/api/v1/control/queue-size</h3><pre id="queue"></pre></div>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const getBase = () => (document.getElementById('baseUrl').value || 'http://127.0.0.1:8080').replace(/\/$/, '');
+    let timer = null;
+
+    function setStatus(msg) { statusEl.textContent = msg || ''; }
+    function show(id, obj) { document.getElementById(id).textContent = JSON.stringify(obj, null, 2); }
+
+    async function fetchJson(path) {
+      const r = await fetch(`${getBase()}${path}`);
+      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+      return r.json();
+    }
+
+    async function refreshAll() {
+      setStatus('Loading...');
+      const [health, deps, snapshot, queue] = await Promise.all([
+        fetchJson('/health'),
+        fetchJson('/health/deps'),
+        fetchJson('/api/v1/debug/snapshot'),
+        fetchJson('/api/v1/control/queue-size'),
+      ]);
+      show('health', health);
+      show('deps', deps);
+      show('snapshot', snapshot);
+      show('queue', queue);
+      setStatus(`Updated at ${new Date().toLocaleTimeString()}`);
+    }
+
+    async function injectText() {
+      const text = document.getElementById('injectText').value.trim();
+      if (!text) return;
+      setStatus('Sending...');
+      const r = await fetch(`${getBase()}/api/v1/control/inject-text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) throw new Error(`inject: HTTP ${r.status}`);
+      setStatus('Injected');
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', () => refreshAll().catch(e => setStatus(String(e))));
+    document.getElementById('injectBtn').addEventListener('click', () => injectText().catch(e => setStatus(String(e))));
+    document.getElementById('autoBtn').addEventListener('click', () => {
+      const btn = document.getElementById('autoBtn');
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        btn.textContent = 'Auto: Off';
+      } else {
+        timer = setInterval(() => refreshAll().catch(e => setStatus(String(e))), 3000);
+        btn.textContent = 'Auto: On';
+      }
+    });
+
+    refreshAll().catch(e => setStatus(String(e)));
+  </script>
+</body>
+</html>

@@ -2,6 +2,8 @@
 // 顶层页面：负责把 Live2D 画布、字幕、设置面板和通信逻辑组装在一起。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import Live2DCanvas from './components/Live2DCanvas.vue'
 import SubtitleOverlay from './components/SubtitleOverlay.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -56,6 +58,10 @@ let ttsQueue: string[] = []
 let ttsPlaying = false
 let currentTtsAudio: HTMLAudioElement | null = null
 let lastTtsObjectUrl: string | null = null
+let ttsAudioCtx: AudioContext | null = null
+let ttsAnalyser: AnalyserNode | null = null
+let ttsSourceNode: MediaElementAudioSourceNode | null = null
+let lipSyncRaf = 0
 let audioUnlockBound = false
 let assistantStreamPrevText = ''
 let ttsPendingStreamText = ''
@@ -136,9 +142,60 @@ function stopTtsPlayback() {
   }
   currentTtsAudio = null
   ttsQueue = []
+  stopLipSync()
   ttsPendingStreamText = ''
   assistantStreamPrevText = ''
   ttsPlaying = false
+}
+
+function stopLipSync() {
+  if (lipSyncRaf) {
+    cancelAnimationFrame(lipSyncRaf)
+    lipSyncRaf = 0
+  }
+  if (ttsSourceNode) {
+    try { ttsSourceNode.disconnect() } catch {}
+    ttsSourceNode = null
+  }
+  if (ttsAnalyser) {
+    try { ttsAnalyser.disconnect() } catch {}
+    ttsAnalyser = null
+  }
+  live2dRef.value?.setMouthOpen?.(0)
+}
+
+function startLipSync(audio: HTMLAudioElement) {
+  stopLipSync()
+  try {
+    if (!ttsAudioCtx) ttsAudioCtx = new AudioContext()
+    ttsAnalyser = ttsAudioCtx.createAnalyser()
+    ttsAnalyser.fftSize = 256
+    ttsSourceNode = ttsAudioCtx.createMediaElementSource(audio)
+    ttsSourceNode.connect(ttsAnalyser)
+    ttsAnalyser.connect(ttsAudioCtx.destination)
+
+    const timeData = new Uint8Array(ttsAnalyser.fftSize)
+    const tick = () => {
+      if (!ttsAnalyser || !currentTtsAudio || currentTtsAudio !== audio) {
+        live2dRef.value?.setMouthOpen?.(0)
+        return
+      }
+      ttsAnalyser.getByteTimeDomainData(timeData)
+      let sum = 0
+      for (let i = 0; i < timeData.length; i++) {
+        const centered = (timeData[i] - 128) / 128
+        sum += centered * centered
+      }
+      const rms = Math.sqrt(sum / timeData.length)
+      const mouth = Math.max(0, Math.min(1, (rms - 0.01) * 12))
+      live2dRef.value?.setMouthOpen?.(mouth)
+      lipSyncRaf = requestAnimationFrame(tick)
+    }
+    lipSyncRaf = requestAnimationFrame(tick)
+  } catch (e) {
+    console.warn('[Live2D] lip-sync setup failed:', e)
+    live2dRef.value?.setMouthOpen?.(0)
+  }
 }
 
 function bindAudioUnlock() {
@@ -206,10 +263,12 @@ async function playAssistantTts(text: string) {
       }
       currentTtsAudio = audio
       lastTtsObjectUrl = objectUrl
+      startLipSync(audio)
       try {
         await audio.play()
       } catch (e) {
         console.error('[TTS] autoplay blocked or playback failed:', e)
+        stopLipSync()
         break
       }
 
@@ -220,6 +279,7 @@ async function playAssistantTts(text: string) {
           URL.revokeObjectURL(objectUrl)
           if (lastTtsObjectUrl === objectUrl) lastTtsObjectUrl = null
           if (currentTtsAudio === audio) currentTtsAudio = null
+          stopLipSync()
           resolve()
         }
         audio.addEventListener('ended', done)
@@ -314,7 +374,7 @@ function sendMicChunk(samples: Float32Array) {
   lastMicSendTs = now
   const payload = {
     type: 'audio',
-    sample_rate: MIC_SAMPLE_RATE,
+    sample_rate: Math.round(micAudioCtx?.sampleRate || MIC_SAMPLE_RATE),
     seq: micFrameSeq++,
     audio: floatToPcm16Base64(samples),
   }
@@ -605,6 +665,59 @@ function startDrag() {
   appWindow.startDragging()
 }
 
+type AdminPageConfig = {
+  label: string
+  title: string
+}
+
+const ADMIN_PAGES: Record<string, AdminPageConfig> = {
+  '/config.html': { label: 'admin-config', title: 'Config' },
+  '/debug.html': { label: 'admin-debug', title: 'Debug' },
+  '/memory.html': { label: 'admin-memory', title: 'Memory' },
+}
+
+function resolveAdminPageUrl(path: string): string {
+  return new URL(path, window.location.origin).toString()
+}
+
+async function openAdminPage(path: string) {
+  const page = ADMIN_PAGES[path]
+  const targetUrl = resolveAdminPageUrl(path)
+  try {
+    if (!page) {
+      await openUrl(targetUrl)
+      return
+    }
+
+    const exists = await WebviewWindow.getByLabel(page.label)
+    if (exists) {
+      await exists.setFocus()
+      return
+    }
+
+    const child = new WebviewWindow(page.label, {
+      title: `Avis ${page.title}`,
+      url: targetUrl,
+      width: 1160,
+      height: 760,
+      center: true,
+      resizable: true,
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      void child.once('tauri://created', () => resolve())
+      void child.once('tauri://error', (e) => reject(e))
+    })
+  } catch (e) {
+    console.warn('[AdminPage] tauri window open failed, fallback opener:', e)
+    try {
+      await openUrl(targetUrl)
+    } catch (e2) {
+      console.warn('[AdminPage] opener fallback failed:', e2)
+    }
+  }
+}
+
 async function sendChat() {
   // 发送文本输入到 Core 的兼容接口。
   // 文本输入走兼容接口 /playground/text
@@ -639,6 +752,9 @@ async function sendChat() {
           @click="toggleMic"
           :title="micEnabled ? '关闭麦克风' : '打开麦克风'"
         >🎤</button>
+        <button class="title-btn" @click="openAdminPage('/config.html')" title="Config">C</button>
+        <button class="title-btn" @click="openAdminPage('/debug.html')" title="Debug">D</button>
+        <button class="title-btn" @click="openAdminPage('/memory.html')" title="Memory">M</button>
         <button class="title-btn" @click="showChatInput = !showChatInput" title="聊天">💬</button>
         <button class="title-btn" @click="showSettings = !showSettings" title="设置">⚙</button>
         <button class="title-btn" @click="appWindow.minimize()" title="最小化">─</button>

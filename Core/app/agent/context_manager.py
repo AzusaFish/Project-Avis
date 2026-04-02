@@ -27,7 +27,7 @@ class ContextSlice:
     """ContextSlice: main class container for related behavior in this module."""
     system_prompt: str
     persona_examples: list[str]
-    short_history: list[str]
+    short_history: list[dict[str, str]]
     latest_input: str
 
     def render_messages(self) -> list[dict[str, str]]:
@@ -42,8 +42,11 @@ class ContextSlice:
                     "content": "Persona style examples:\n" + "\n".join(self.persona_examples),
                 }
             )
-        for line in self.short_history:
-            messages.append({"role": "user", "content": line})
+        for item in self.short_history:
+            role = str(item.get("role", "user")).strip().lower()
+            if role not in {"user", "assistant", "system", "tool"}:
+                role = "user"
+            messages.append({"role": role, "content": str(item.get("content", ""))})
         messages.append({"role": "user", "content": self.latest_input})
         return messages
 
@@ -61,7 +64,7 @@ class ContextManager:
         self,
         system_prompt: str,
         persona_examples: list[str],
-        history: list[str],
+        history: list[dict[str, str]],
         latest_input: str,
     ) -> ContextSlice:
         # 在预算限制下选择“系统提示 + 人格示例 + 历史 + 最新输入”的子集。
@@ -81,12 +84,13 @@ class ContextManager:
             selected_examples.append(ex)
             used += t
 
-        selected_history: list[str] = []
-        for line in reversed(history):
+        selected_history: list[dict[str, str]] = []
+        for item in reversed(history):
+            line = str(item.get("content", ""))
             t = rough_token_count(line)
             if used + t > budget:
                 break
-            selected_history.append(line)
+            selected_history.append(item)
             used += t
 
         selected_history.reverse()

@@ -39,7 +39,12 @@ async def ws_audio(ws: WebSocket) -> None:
                 continue
             audio = packet.get("audio")
             if audio:
-                sample_rate = int(packet.get("sample_rate", 16000))
+                try:
+                    sample_rate = int(packet.get("sample_rate", 16000))
+                except Exception:
+                    sample_rate = 16000
+                if sample_rate < 8000 or sample_rate > 96000:
+                    sample_rate = 16000
                 await bus.publish(
                     Event(
                         event_type=EventType.USER_AUDIO_CHUNK,

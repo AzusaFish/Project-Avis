@@ -19,6 +19,7 @@ onnxruntime>=1.19.0
 numpy>=1.26.0
 soundfile>=0.12.1
 pyaudio>=0.2.14
+wcferry; platform_system == "Windows"
 
 # Optional fallback for non-uv setup. In uv workflow, RealtimeSTT is declared in pyproject.toml.
 # -e ../RealtimeSTT-master/RealtimeSTT-master

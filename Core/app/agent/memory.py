@@ -10,6 +10,8 @@ Beginner note:
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.storage.chroma_store import ChromaStore
 from app.storage.sqlite_store import SQLiteStore
 
@@ -27,14 +29,34 @@ class MemoryFacade:
         """Public API `append_dialogue` used by other modules or route handlers."""
         await self.sqlite.insert_dialogue(role=role, text=text)
 
-    async def recent_dialogue(self, limit: int = 16) -> list[str]:
-        # 读取最近若干条记录并格式化为“role: text”文本行。
-        # 返回 list[str] 是为了直接拼到 prompt，减少中间对象转换。
+    async def recent_dialogue(self, limit: int = 16) -> list[dict[str, str]]:
+        # 读取最近若干条记录并保留 role，避免上下文角色混淆。
         """Public API `recent_dialogue` used by other modules or route handlers."""
         rows = await self.sqlite.fetch_recent_dialogue(limit=limit)
-        return [f"{r['role']}: {r['text']}" for r in rows]
+        normalized: list[dict[str, str]] = []
+        for row in rows:
+            role = str(row.get("role", "user")).strip().lower()
+            if role not in {"user", "assistant", "system", "tool"}:
+                role = "user"
+            normalized.append({"role": role, "content": str(row.get("text", ""))})
+        return normalized
 
     def retrieve_persona_examples(self, query: str, top_k: int = 4) -> list[str]:
         # 从向量库检索与当前输入语义相近的人格语料片段。
         """Public API `retrieve_persona_examples` used by other modules or route handlers."""
         return self.chroma.search_persona(query=query, top_k=top_k)
+
+    def retrieve_long_term_notes(self, query: str, top_k: int = 4) -> list[str]:
+        # 召回长期记忆笔记，用于增强上下文的一致性与延续性。
+        """Public API `retrieve_long_term_notes` used by other modules or route handlers."""
+        return self.chroma.search_long_term(query=query, top_k=top_k)
+
+    def append_long_term_notes(
+        self,
+        notes: list[str],
+        source: str = "reflection",
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
+        # 批量写入长期记忆。
+        """Public API `append_long_term_notes` used by other modules or route handlers."""
+        return self.chroma.add_long_term_notes(notes=notes, source=source, metadata=metadata)

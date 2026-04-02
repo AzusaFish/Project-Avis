@@ -14,6 +14,8 @@ import io
 import json
 import os
 import wave
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
@@ -60,10 +62,103 @@ class ClearMemoryReq(BaseModel):
     role: str | None = Field(default=None, pattern="^(user|assistant)?$")
 
 
+class UpdateConfigReq(BaseModel):
+    # Batch config update payload, key-value style.
+    """UpdateConfigReq: main class container for related behavior in this module."""
+    items: dict[str, Any] = Field(default_factory=dict)
+
+
 def ok(data: dict | list | str | int | float | bool | None = None, message: str = "ok") -> dict:
     # Small helper to keep v1 responses structurally consistent.
     """Public API `ok` used by other modules or route handlers."""
     return {"code": 0, "message": message, "data": data}
+
+
+def _project_config_path() -> Path:
+    """Resolve project root config.yaml path."""
+    return Path(__file__).resolve().parents[3] / "config.yaml"
+
+
+def _format_config_value(value: Any) -> str:
+    """Serialize primitive values into flat config.yaml style."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _read_flat_config() -> dict[str, str]:
+    """Read flat key-value config lines from project config.yaml."""
+    path = _project_config_path()
+    if not path.exists():
+        return {}
+
+    data: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+        data[key] = value
+    return data
+
+
+def _apply_flat_config_updates(updates: dict[str, Any]) -> dict[str, object]:
+    """Update existing config keys in-place and append new keys at the end."""
+    path = _project_config_path()
+    if not path.exists():
+        raise HTTPException(status_code=500, detail=f"config file not found: {path}")
+
+    raw_lines = path.read_text(encoding="utf-8").splitlines()
+    output: list[str] = []
+    pending = {k: _format_config_value(v) for k, v in updates.items() if str(k).strip()}
+
+    for raw in raw_lines:
+        line = raw.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in line:
+            output.append(line)
+            continue
+
+        left, right = line.split(":", 1)
+        key = left.strip()
+        if key not in pending:
+            output.append(line)
+            continue
+
+        comment = ""
+        if " #" in right:
+            comment = " #" + right.split(" #", 1)[1].strip()
+        output.append(f"{key}: {pending[key]}{comment}")
+        pending.pop(key, None)
+
+    if pending:
+        if output and output[-1].strip() != "":
+            output.append("")
+        output.append("# Appended by /api/v1/config update")
+        for key in sorted(pending.keys()):
+            output.append(f"{key}: {pending[key]}")
+
+    path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    for key, value in updates.items():
+        os.environ[str(key)] = _format_config_value(value)
+
+    return {
+        "path": str(path),
+        "updated": sorted(str(k) for k in updates.keys()),
+        "restart_recommended": True,
+    }
 
 
 async def _tcp_probe(url: str, timeout_sec: float = 0.8) -> dict[str, object]:
@@ -252,3 +347,68 @@ async def clear_memory(req: ClearMemoryReq, request: Request) -> dict:
     sqlite = _get_sqlite(request)
     deleted = await sqlite.clear_dialogue(role=req.role)
     return ok({"deleted": deleted, "role": req.role})
+
+
+@router.get("/config")
+async def get_config() -> dict:
+    # Read current project config file for visual config editor.
+    """Public API `get_config` used by other modules or route handlers."""
+    data = _read_flat_config()
+    return ok({"path": str(_project_config_path()), "items": data})
+
+
+@router.patch("/config")
+async def patch_config(req: UpdateConfigReq) -> dict:
+    # Apply key-value updates to project config.yaml.
+    """Public API `patch_config` used by other modules or route handlers."""
+    if not req.items:
+        return ok({"updated": [], "restart_recommended": False}, message="no changes")
+    result = _apply_flat_config_updates(req.items)
+    return ok(result)
+
+
+@router.get("/debug/snapshot")
+async def debug_snapshot(request: Request) -> dict:
+    # Aggregate runtime status for debug dashboard page.
+    """Public API `debug_snapshot` used by other modules or route handlers."""
+    bus = _get_bus(request)
+    sqlite = _get_sqlite(request)
+    frontend = getattr(request.app.state, "frontend", None)
+
+    provider = settings.llm_provider.lower().strip()
+    if provider == "ollama":
+        llm_url = settings.ollama_base_url
+    elif provider in {"gguf", "llama_cpp"}:
+        llm_url = settings.gguf_base_url
+    else:
+        llm_url = settings.llm_base_url
+
+    deps = {
+        "tts": await _tcp_probe(settings.tts_base_url),
+        "stt": await _tcp_probe(settings.stt_base_url),
+        "llm": await _tcp_probe(llm_url),
+    }
+    role_counts = {
+        "user": await sqlite.count_dialogue(role="user"),
+        "assistant": await sqlite.count_dialogue(role="assistant"),
+    }
+
+    ws_clients = 0
+    if frontend is not None and hasattr(frontend, "_connections"):
+        try:
+            ws_clients = len(getattr(frontend, "_connections"))
+        except Exception:
+            ws_clients = 0
+
+    return ok(
+        {
+            "queue_size": bus.qsize(),
+            "ws_clients": ws_clients,
+            "deps": deps,
+            "llm_provider": provider,
+            "llm_model": settings.gguf_model if provider in {"gguf", "llama_cpp"} else settings.llm_model,
+            "tts_provider": settings.tts_provider,
+            "memory_count": role_counts,
+            "config_path": str(_project_config_path()),
+        }
+    )

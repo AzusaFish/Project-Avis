@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Avis Memory Manager</title>
+  <style>
+    body { font-family: Segoe UI, sans-serif; background: #0b1020; color: #e5e7eb; margin: 0; }
+    .wrap { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    .bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    input, select, button, textarea { border-radius: 8px; border: 1px solid #334155; padding: 8px 10px; background: #111827; color: #e5e7eb; }
+    button { cursor: pointer; background: #2563eb; border-color: #2563eb; }
+    button.secondary { background: #111827; border-color: #334155; }
+    table { width: 100%; border-collapse: collapse; background: #111827; border: 1px solid #334155; }
+    th, td { border-bottom: 1px solid #1f2937; padding: 8px; text-align: left; font-size: 12px; vertical-align: top; }
+    th { background: #0f172a; }
+    td textarea { width: 100%; min-height: 56px; box-sizing: border-box; }
+    .status { margin-left: auto; align-self: center; color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Memory Manager (Tauri Frontend)</h1>
+    <div class="bar">
+      <input id="baseUrl" value="http://127.0.0.1:8080" style="min-width: 260px" />
+      <input id="q" placeholder="keyword" />
+      <select id="role"><option value="">all role</option><option value="user">user</option><option value="assistant">assistant</option></select>
+      <input id="limit" type="number" min="1" max="200" value="30" style="width: 80px" />
+      <button id="searchBtn">Search</button>
+      <button id="prevBtn" class="secondary">Prev</button>
+      <button id="nextBtn" class="secondary">Next</button>
+      <button id="clearBtn" class="secondary">Clear Filtered Role</button>
+      <span id="status" class="status"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 50px">ID</th>
+          <th style="width: 80px">Role</th>
+          <th>Text</th>
+          <th style="width: 160px">Created</th>
+          <th style="width: 140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const rowsEl = document.getElementById('rows');
+    const statusEl = document.getElementById('status');
+    let offset = 0;
+    let total = 0;
+
+    function setStatus(msg) { statusEl.textContent = msg || ''; }
+    function base() { return (document.getElementById('baseUrl').value || 'http://127.0.0.1:8080').replace(/\/$/, ''); }
+    function limitVal() { return Math.max(1, Math.min(200, Number(document.getElementById('limit').value || 30))); }
+
+    async function fetchJson(url, init) {
+      const r = await fetch(url, init);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }
+
+    async function load() {
+      const role = document.getElementById('role').value;
+      const q = document.getElementById('q').value.trim();
+      const limit = limitVal();
+      setStatus('Loading...');
+      const url = new URL(`${base()}/api/v1/memory/dialogues`);
+      url.searchParams.set('limit', String(limit));
+      url.searchParams.set('offset', String(offset));
+      if (role) url.searchParams.set('role', role);
+      if (q) url.searchParams.set('q', q);
+      const payload = await fetchJson(url.toString());
+      const data = payload.data || {};
+      total = Number(data.total || 0);
+      const items = data.items || [];
+
+      rowsEl.innerHTML = '';
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.role}</td>
+          <td><textarea id="txt-${item.id}">${(item.text || '').replace(/</g, '&lt;')}</textarea></td>
+          <td>${item.created_at || ''}</td>
+          <td>
+            <button data-id="${item.id}" data-act="save">Save</button>
+            <button data-id="${item.id}" data-act="del" class="secondary">Delete</button>
+          </td>
+        `;
+        rowsEl.appendChild(tr);
+      }
+
+      setStatus(`total=${total}, offset=${offset}, loaded=${items.length}`);
+    }
+
+    async function saveOne(id) {
+      const text = document.getElementById(`txt-${id}`).value.trim();
+      if (!text) return;
+      await fetchJson(`${base()}/api/v1/memory/dialogues/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      setStatus(`saved id=${id}`);
+    }
+
+    async function delOne(id) {
+      await fetchJson(`${base()}/api/v1/memory/dialogues/${id}`, { method: 'DELETE' });
+      await load();
+      setStatus(`deleted id=${id}`);
+    }
+
+    async function clearRole() {
+      const role = document.getElementById('role').value || null;
+      await fetchJson(`${base()}/api/v1/memory/dialogues/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      offset = 0;
+      await load();
+      setStatus(`cleared role=${role || 'all'}`);
+    }
+
+    rowsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-id]');
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      const act = btn.dataset.act;
+      if (act === 'save') saveOne(id).catch(err => setStatus(String(err)));
+      if (act === 'del') delOne(id).catch(err => setStatus(String(err)));
+    });
+
+    document.getElementById('searchBtn').addEventListener('click', () => { offset = 0; load().catch(e => setStatus(String(e))); });
+    document.getElementById('prevBtn').addEventListener('click', () => { offset = Math.max(0, offset - limitVal()); load().catch(e => setStatus(String(e))); });
+    document.getElementById('nextBtn').addEventListener('click', () => { if (offset + limitVal() < total) offset += limitVal(); load().catch(e => setStatus(String(e))); });
+    document.getElementById('clearBtn').addEventListener('click', () => clearRole().catch(e => setStatus(String(e))));
+
+    load().catch(e => setStatus(String(e)));
+  </script>
+</body>
+</html>
