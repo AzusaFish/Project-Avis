@@ -20,7 +20,7 @@ from app.agent.memory_reflector import MemoryReflector
 from app.core.bus import EventBus
 from app.inputs.scheduler import proactive_scheduler
 from app.inputs.sts_bridge import sts_state_watcher
-from app.inputs.wechat_guard import wechat_watcher
+from wechat.runtime.wechat_guard import wechat_watcher
 from app.services.frontend_gateway import FrontendGateway
 from app.services.llm_router import LLMRouter
 from app.services.stt_service import STTService
@@ -28,11 +28,12 @@ from app.services.tts_service import TTSService
 from app.storage.chroma_store import ChromaStore
 from app.storage.sqlite_store import SQLiteStore
 from app.tools.google_search import GoogleSearchTool
+from app.tools.desktop_screenshot_tool import DesktopScreenshotTool
 from app.tools.live2d_tool import Live2DControlTool
 from app.tools.registry import ToolRegistry
 from app.tools.sts_tool import SlayTheSpireTool
 from app.tools.time_tool import CurrentTimeTool
-from app.tools.wechat_tool import WeChatSendTool
+from wechat.runtime.wechat_tool import WeChatSendTool
 
 
 async def startup(app: FastAPI) -> None:
@@ -55,6 +56,7 @@ async def startup(app: FastAPI) -> None:
 
     tools = ToolRegistry()
     tools.register(GoogleSearchTool())
+    tools.register(DesktopScreenshotTool())
     tools.register(WeChatSendTool())
     tools.register(Live2DControlTool())
     tools.register(SlayTheSpireTool())

@@ -48,5 +48,21 @@ async def ws_live2d(ws: WebSocket) -> None:
                             payload={"text": user_text},
                         )
                     )
+            elif action == "think":
+                # think 动作走静默续写，推动下一轮 LLM 推理。
+                await bus.publish(
+                    Event(
+                        event_type=EventType.USER_TEXT,
+                        source="frontend_ws",
+                        payload={
+                            "text": "[SYSTEM: Continue]",
+                            "silent": True,
+                            "system_inject": True,
+                        },
+                    )
+                )
+            elif action == "ask":
+                # ask 动作表示前端进入等待用户输入态，这里不自动注入任何文本。
+                continue
     except WebSocketDisconnect:
         await gateway.disconnect(ws)

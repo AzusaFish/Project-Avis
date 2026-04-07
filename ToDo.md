@@ -121,6 +121,7 @@
 ### **4\.新功能**
 
 1. 把LLM更换为更新的InternVL-14B（但保留原来的Qwen14B经Unsloth微调后模型接口）模型已存至D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B，新增屏幕截图tool，允许LLM截图查看桌面。（用的是llama.cpp的llama-server）
+写一个通过LLaMa_Factory对模型进行微调的代码。现在已经有annotator.py(under \Tuning)
 
 2. ~~修改静默后主动挑起话题为主动挑起话题/使用工具并且更改逻辑。目前静默时间计数有问题，貌似用文字与LLM对话不会影响计数。此外，让LLM动态维护一个当前对话所需积极度，根据积极度增加/减少主动挑起话题间隔。e.g 当前用户暂时离开->对话积极度降至极低，几乎不主动挑起话题。 (tool除外)~~（阶段1已完成：动态静默窗口+积极度驱动+低积极度抑制主动开话题）
 

@@ -8,7 +8,7 @@ param(
     [string]$KokoroDir = "",
     [string]$KokoroLaunchCmd = "python -m kokoro_fastapi --host 127.0.0.1 --port 9880",
     [bool]$EnableWechatBridge = $true,
-    [ValidateSet("local", "gewechat", "wcferry", "itchat")]
+    [ValidateSet("local", "gewechat", "wcferry", "itchat", "secure_relay")]
     [string]$WechatProvider = "local",
     [int]$WechatBridgePort = 9010,
     [string]$GewechatBaseUrl = "http://127.0.0.1:2531/v2/api",
@@ -16,7 +16,13 @@ param(
     [string]$GewechatAppId = "",
     [string]$GewechatAts = "[]",
     [int]$ItchatEnableCmdQr = 2,
-    [bool]$ItchatHotReload = $false
+    [bool]$ItchatHotReload = $false,
+    [string]$SecureRelaySendUrl = "",
+    [string]$SecureRelaySharedSecret = "",
+    [int]$SecureRelayWindowSec = 300,
+    [string]$SecureRelaySignHeader = "X-Relay-Signature",
+    [string]$SecureRelayTsHeader = "X-Relay-Timestamp",
+    [string]$SecureRelayNonceHeader = "X-Relay-Nonce"
 )
 
 # Start all local services in separate PowerShell windows.
@@ -110,6 +116,15 @@ Write-Host "Launching RealtimeSTT HTTP bridge..."
 Start-InCondaWindow -Title "STT Bridge" -EnvName $CoreEnv -WorkDir $coreDir -Command "python bridges/realtimestt_http_bridge.py"
 
 if ($EnableWechatBridge) {
+    if ($WechatProvider -eq "secure_relay") {
+        if (-not $SecureRelaySendUrl.Trim()) {
+            throw "WechatProvider=secure_relay requires -SecureRelaySendUrl"
+        }
+        if (-not $SecureRelaySharedSecret.Trim()) {
+            throw "WechatProvider=secure_relay requires -SecureRelaySharedSecret"
+        }
+    }
+
     Write-Host "Launching WeChat bridge..."
     $wechatLaunch = @"
 `$env:WECHAT_BRIDGE_PROVIDER = '$WechatProvider'
@@ -120,7 +135,13 @@ if ($EnableWechatBridge) {
 `$env:GEWECHAT_ATS = '$GewechatAts'
 `$env:ITCHAT_ENABLE_CMD_QR = '$ItchatEnableCmdQr'
 `$env:ITCHAT_HOT_RELOAD = '$ItchatHotReload'
-python bridges/wechat_http_bridge.py
+`$env:SECURE_RELAY_SEND_URL = '$SecureRelaySendUrl'
+`$env:SECURE_RELAY_SHARED_SECRET = '$SecureRelaySharedSecret'
+`$env:SECURE_RELAY_WINDOW_SEC = '$SecureRelayWindowSec'
+`$env:SECURE_RELAY_SIGN_HEADER = '$SecureRelaySignHeader'
+`$env:SECURE_RELAY_TS_HEADER = '$SecureRelayTsHeader'
+`$env:SECURE_RELAY_NONCE_HEADER = '$SecureRelayNonceHeader'
+python wechat/bridge/wechat_http_bridge.py
 "@
     Start-InCondaWindow -Title "WeChat Bridge" -EnvName $CoreEnv -WorkDir $coreDir -Command $wechatLaunch
 }

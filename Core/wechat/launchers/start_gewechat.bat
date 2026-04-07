@@ -1,6 +1,6 @@
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Core\scripts\start_gewechat_bootstrap.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\scripts\start_gewechat_bootstrap.ps1" %*
 set "EC=%ERRORLEVEL%"
 if not "%EC%"=="0" (
 	echo.

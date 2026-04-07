@@ -14,11 +14,16 @@ param(
     [string]$GewechatCallbackUrl = "http://host.docker.internal:9010/gewechat/callback",
     [string]$GewechatToWxid = "",
     [switch]$GewechatSkipCallback,
+    [switch]$AcknowledgeRisk,
     [string]$RepoRoot = "D:\AzusaFish\Codes\Development\Project-Avis"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $AcknowledgeRisk) {
+    throw "Blocked by safety gate. Re-run with -AcknowledgeRisk only after you fully understand account-risk implications."
+}
 
 function Get-Json {
     param([string]$Url)
@@ -61,7 +66,7 @@ function Invoke-GewechatFallback {
         [switch]$SkipCallback
     )
 
-    $script = Join-Path $Root "Core\scripts\gewechat_saas_bind_and_check.ps1"
+    $script = Join-Path $Root "Core\wechat\scripts\gewechat_saas_bind_and_check.ps1"
     if (-not (Test-Path -LiteralPath $script)) {
         throw "fallback script not found: $script"
     }
@@ -71,7 +76,7 @@ function Invoke-GewechatFallback {
     }
 
     Write-Host "Invoking Gewechat SaaS fallback check..." -ForegroundColor Cyan
-    $args = @(
+    $fallbackArgs = @(
         "-Token", $Token,
         "-AppId", $AppId,
         "-BaseUrl", $BaseUrl,
@@ -80,13 +85,13 @@ function Invoke-GewechatFallback {
     )
 
     if ($ToWxid.Trim()) {
-        $args += @("-ToWxid", $ToWxid, "-Text", $Text)
+        $fallbackArgs += @("-ToWxid", $ToWxid, "-Text", $Text)
     }
     if ($SkipCallback) {
-        $args += "-SkipCallback"
+        $fallbackArgs += "-SkipCallback"
     }
 
-    & $script @args
+    & $script @fallbackArgs
 }
 
 function Restart-ItchatBridge {
@@ -104,7 +109,7 @@ function Restart-ItchatBridge {
         Remove-Item -LiteralPath $qrPath -Force -ErrorAction SilentlyContinue
     }
 
-    $launcher = Join-Path $Root "start_wechat_itchat.bat"
+    $launcher = Join-Path $Root "Core\wechat\launchers\start_wechat_itchat.bat"
     if (-not (Test-Path -LiteralPath $launcher)) {
         throw "Launcher not found: $launcher"
     }

@@ -66,7 +66,8 @@ Core/models/
 Core/third_party/
 
 #Unsloth/
-Tuning/
+Tuning/LLaMa_Factory/InternVL3_5-14B-HF/
+Tuning/LLaMa_Factory/InternVL3_0-14B-abliterated/
 # =====================
 # Large components and Local Data
 # =====================
@@ -82,5 +83,13 @@ Core/assets/kokoro/*.safetensors
 Core/data/memory.db
 Core/data/chroma/
 
+# WeChat bridge runtime artifacts
+Core/QR.png
+Core/itchat.pkl
+
 # Model
 Model/
+
+
+# Others
+ToDo.md

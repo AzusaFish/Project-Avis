@@ -176,7 +176,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_everything.ps1 -TtsProv
 
 ```powershell
 cd D:\AzusaFish\Codes\Development\Project-Avis
-.\start_gewechat.bat
+.\Core\wechat\launchers\start_gewechat.bat
 ```
 
 脚本会自动完成：
@@ -193,7 +193,7 @@ cd D:\AzusaFish\Codes\Development\Project-Avis
 若只想输出 token：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Core\scripts\start_gewechat_bootstrap.ps1 -PrintTokenOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Core\wechat\scripts\start_gewechat_bootstrap.ps1 -PrintTokenOnly
 ```
 
 ### 11.1 启动 Gewechat 容器

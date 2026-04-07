@@ -53,7 +53,16 @@ class AgentActionType(str, Enum):
     SPEAK = "speak"
     TOOL_CALL = "tool_call"
     LIVE2D = "live2d"
+    THINK = "think"
+    ASK = "ask"
     IDLE = "idle"
+
+
+class AgentState(str, Enum):
+    """AgentState: runtime conversational control state visible to frontend."""
+    IDLE = "idle"
+    ASKING = "asking"
+    THINKING = "thinking"
 
 
 @dataclass(slots=True)

@@ -28,6 +28,7 @@ class LLMRouter:
         self.provider = settings.llm_provider.lower().strip()
         self.base_url = settings.llm_base_url.rstrip("/")
         self.model = settings.llm_model
+        self.model_profile = settings.llm_model_profile.lower().strip()
         self.api_key = settings.llm_api_key
         self.temperature = settings.llm_temperature
         self.top_p = settings.llm_top_p
@@ -35,6 +36,8 @@ class LLMRouter:
         self.ollama_model = settings.ollama_model
         self.gguf_base_url = settings.gguf_base_url.rstrip("/")
         self.gguf_model = settings.gguf_model
+        self.gguf_qwen_model = settings.gguf_qwen_model
+        self.gguf_internvl_model = settings.gguf_internvl_model
 
     def _using_openai_compatible(self) -> bool:
         """Return true when provider speaks OpenAI-compatible /v1/chat/completions."""
@@ -50,13 +53,17 @@ class LLMRouter:
 
     def _active_openai_base_and_model(self) -> tuple[str, str]:
         if self.provider in {"gguf", "llama_cpp"}:
+            if self.model_profile == "qwen":
+                return self.gguf_base_url, self.gguf_qwen_model
+            if self.model_profile == "internvl":
+                return self.gguf_base_url, self.gguf_internvl_model
             return self.gguf_base_url, self.gguf_model
         if self.provider == "ollama":
             return self._ensure_v1_base(self.ollama_base_url), self.ollama_model
         return self.base_url, self.model
 
     @retry(stop=stop_after_attempt(2), wait=wait_fixed(0.2))
-    async def generate(self, messages: list[dict[str, str]]) -> str:
+    async def generate(self, messages: list[dict[str, object]]) -> str:
         # 非流式生成入口：按 provider 路由到对应后端。
         # tenacity.retry: 失败时自动重试，减少偶发网络抖动影响。
         """Public API `generate` used by other modules or route handlers."""
@@ -64,7 +71,7 @@ class LLMRouter:
             return await self._generate_openai_compatible(messages)
         return await self._generate_openai_compatible(messages)
 
-    async def generate_stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+    async def generate_stream(self, messages: list[dict[str, object]]) -> AsyncIterator[str]:
         # 流式生成入口：逐段产出 token/文本片段。
         """Public API `generate_stream` used by other modules or route handlers."""
         if self._using_openai_compatible():
@@ -74,7 +81,7 @@ class LLMRouter:
         async for delta in self._generate_stream_openai_compatible(messages):
             yield delta
 
-    async def _generate_openai_compatible(self, messages: list[dict[str, str]]) -> str:
+    async def _generate_openai_compatible(self, messages: list[dict[str, object]]) -> str:
         # 调用 OpenAI 兼容的 chat/completions 非流式接口。
         # headers 里 Bearer token 只在 openai-compatible 模式使用。
         """Internal helper `_generate_openai_compatible` used by this module implementation."""
@@ -101,7 +108,7 @@ class LLMRouter:
             return data["choices"][0]["message"]["content"]
 
     async def _generate_stream_openai_compatible(
-        self, messages: list[dict[str, str]]
+        self, messages: list[dict[str, object]]
     ) -> AsyncIterator[str]:
         # 解析 OpenAI SSE 数据流并提取增量文本。
         # SSE 每行以 `data: ` 开头，`[DONE]` 表示流结束。

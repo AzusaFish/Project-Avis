@@ -10,10 +10,16 @@ set "KOKORO_LANG=en-us"
 set "KOKORO_SPEED=1.0"
 set "GPU_ID=0"
 set "CLEAN_PORTS=1"
-set "LLM_PROVIDER=ollama"
+set "LLM_PROVIDER=gguf"
+set "LLM_MODEL_PROFILE=internvl"
 set "GGUF_BASE_URL=http://127.0.0.1:8081/v1"
-set "GGUF_MODEL=Avis-14B-v1.Q4_K_M.gguf"
+set "GGUF_MODEL=InternVL-14B"
 set "GGUF_MODEL_PATH="
+set "GGUF_QWEN_MODEL=Avis-14B-v1.Q4_K_M.gguf"
+set "GGUF_QWEN_MODEL_PATH="
+set "GGUF_INTERNVL_MODEL=InternVL-14B"
+set "GGUF_INTERNVL_MODEL_PATH="
+set "GGUF_MMPROJ_PATH="
 set "GGUF_THREADS=10"
 set "GGUF_N_GPU_LAYERS=99"
 set "GGUF_CTX=8192"
@@ -26,6 +32,12 @@ set "GEWECHAT_BASE_URL=http://127.0.0.1:2531/v2/api"
 set "GEWECHAT_TOKEN="
 set "GEWECHAT_APP_ID="
 set "GEWECHAT_ATS=[]"
+set "SECURE_RELAY_SEND_URL="
+set "SECURE_RELAY_SHARED_SECRET="
+set "SECURE_RELAY_WINDOW_SEC=300"
+set "SECURE_RELAY_SIGN_HEADER=X-Relay-Signature"
+set "SECURE_RELAY_TS_HEADER=X-Relay-Timestamp"
+set "SECURE_RELAY_NONCE_HEADER=X-Relay-Nonce"
 
 call :load_config_defaults
 
@@ -72,9 +84,44 @@ set "GPT_DIR=%AI_ROOT%\GPT-SoVITS-main\GPT-SoVITS-main"
 set "STT_DIR=%AI_ROOT%\RealtimeSTT-master\RealtimeSTT-master"
 set "UI_DIR=%AI_ROOT%\live2d-desktop"
 set "CORE_VENV_PY=%CORE_DIR%\.venv\Scripts\python.exe"
-if not defined GGUF_MODEL_PATH set "GGUF_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_MODEL%"
-if "%GGUF_MODEL_PATH:~0,2%"=="./" set "GGUF_MODEL_PATH=%AI_ROOT%\%GGUF_MODEL_PATH:~2%"
-if "%GGUF_MODEL_PATH:~0,2%"==".\" set "GGUF_MODEL_PATH=%AI_ROOT%\%GGUF_MODEL_PATH:~2%"
+if not defined GGUF_QWEN_MODEL_PATH set "GGUF_QWEN_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_QWEN_MODEL%"
+if not defined GGUF_INTERNVL_MODEL_PATH set "GGUF_INTERNVL_MODEL_PATH=%AI_ROOT%\Model\Base\InternVL14B"
+if /I "%LLM_MODEL_PROFILE%"=="qwen" (
+  set "GGUF_MODEL=%GGUF_QWEN_MODEL%"
+  set "GGUF_MODEL_PATH=%GGUF_QWEN_MODEL_PATH%"
+) else (
+  set "GGUF_MODEL=%GGUF_INTERNVL_MODEL%"
+  set "GGUF_MODEL_PATH=%GGUF_INTERNVL_MODEL_PATH%"
+)
+if defined GGUF_MODEL_PATH if "!GGUF_MODEL_PATH:~0,1!"=="." (
+  if "!GGUF_MODEL_PATH:~1,1!"=="/" set "GGUF_MODEL_PATH=%AI_ROOT%\!GGUF_MODEL_PATH:~2!"
+  if "!GGUF_MODEL_PATH:~1,1!"=="\" set "GGUF_MODEL_PATH=%AI_ROOT%\!GGUF_MODEL_PATH:~2!"
+)
+if defined GGUF_MMPROJ_PATH if "!GGUF_MMPROJ_PATH:~0,1!"=="." (
+  if "!GGUF_MMPROJ_PATH:~1,1!"=="/" set "GGUF_MMPROJ_PATH=%AI_ROOT%\!GGUF_MMPROJ_PATH:~2!"
+  if "!GGUF_MMPROJ_PATH:~1,1!"=="\" set "GGUF_MMPROJ_PATH=%AI_ROOT%\!GGUF_MMPROJ_PATH:~2!"
+)
+
+if exist "%GGUF_MODEL_PATH%\" (
+  set "_GGUF_DIR=%GGUF_MODEL_PATH%"
+  set "_GGUF_MODEL_FILE="
+  set "_GGUF_MMPROJ_FILE="
+
+  for %%F in ("!_GGUF_DIR!\*mmproj*.gguf") do (
+    if not defined _GGUF_MMPROJ_FILE set "_GGUF_MMPROJ_FILE=%%~fF"
+  )
+
+  for %%F in ("!_GGUF_DIR!\*.gguf") do (
+    if /I not "%%~fF"=="!_GGUF_MMPROJ_FILE!" if not defined _GGUF_MODEL_FILE set "_GGUF_MODEL_FILE=%%~fF"
+  )
+
+  if defined _GGUF_MODEL_FILE set "GGUF_MODEL_PATH=!_GGUF_MODEL_FILE!"
+  if not defined GGUF_MMPROJ_PATH if defined _GGUF_MMPROJ_FILE set "GGUF_MMPROJ_PATH=!_GGUF_MMPROJ_FILE!"
+
+  set "_GGUF_DIR="
+  set "_GGUF_MODEL_FILE="
+  set "_GGUF_MMPROJ_FILE="
+)
 
 for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; try {([uri]'%GGUF_BASE_URL%').Port} catch {''}"') do (
   if not "%%P"=="" set "GGUF_PORT=%%P"
@@ -83,6 +130,27 @@ for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference
 if /I "%LLM_PROVIDER%"=="gguf" if not exist "%GGUF_MODEL_PATH%" (
   echo [ERROR] GGUF model not found: %GGUF_MODEL_PATH%
   exit /b 1
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" if /I "%LLM_MODEL_PROFILE%"=="internvl" if "%GGUF_MMPROJ_PATH%"=="" (
+  echo [ERROR] InternVL profile requires GGUF_MMPROJ_PATH or an auto-detected *mmproj*.gguf in model folder.
+  exit /b 1
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" if /I "%LLM_MODEL_PROFILE%"=="internvl" if not exist "%GGUF_MMPROJ_PATH%" (
+  echo [ERROR] InternVL mmproj file not found: %GGUF_MMPROJ_PATH%
+  exit /b 1
+)
+
+if /I "%WECHAT_BRIDGE_PROVIDER%"=="secure_relay" (
+  if "%SECURE_RELAY_SEND_URL%"=="" (
+    echo [ERROR] WECHAT_BRIDGE_PROVIDER=secure_relay but SECURE_RELAY_SEND_URL is empty.
+    exit /b 1
+  )
+  if "%SECURE_RELAY_SHARED_SECRET%"=="" (
+    echo [ERROR] WECHAT_BRIDGE_PROVIDER=secure_relay but SECURE_RELAY_SHARED_SECRET is empty.
+    exit /b 1
+  )
 )
 
 if /I "%LLM_PROVIDER%"=="gguf" (
@@ -170,7 +238,10 @@ echo [INFO] uv: %UV_EXE%
 echo [INFO] TTS provider: %TTS_PROVIDER%
 echo [INFO] LLM provider: %LLM_PROVIDER%
 if /I "%LLM_PROVIDER%"=="gguf" (
+  echo [INFO] GGUF model profile: %LLM_MODEL_PROFILE%
+  echo [INFO] GGUF model id: %GGUF_MODEL%
   echo [INFO] GGUF model path: %GGUF_MODEL_PATH%
+  if defined GGUF_MMPROJ_PATH echo [INFO] GGUF mmproj path: %GGUF_MMPROJ_PATH%
   echo [INFO] GGUF base URL: %GGUF_BASE_URL%
   echo [INFO] llama-server: %LLAMA_SERVER_EXE%
 )
@@ -281,7 +352,11 @@ if /I "%LLM_PROVIDER%"=="gguf" (
     echo title GGUF LLM
     echo cd /d "%AI_ROOT%"
     echo set "CUDA_VISIBLE_DEVICES=%GPU_ID%"
-    echo "%LLAMA_SERVER_EXE%" -m "%GGUF_MODEL_PATH%" --host 127.0.0.1 --port %GGUF_PORT% --ctx-size %GGUF_CTX% --threads %GGUF_THREADS% --gpu-layers %GGUF_N_GPU_LAYERS% --main-gpu %GGUF_MAIN_GPU% --parallel 1 --jinja --chat-template %GGUF_CHAT_TEMPLATE% --no-webui
+    if defined GGUF_MMPROJ_PATH (
+      echo "%LLAMA_SERVER_EXE%" -m "%GGUF_MODEL_PATH%" --mmproj "%GGUF_MMPROJ_PATH%" --host 127.0.0.1 --port %GGUF_PORT% --ctx-size %GGUF_CTX% --threads %GGUF_THREADS% --gpu-layers %GGUF_N_GPU_LAYERS% --main-gpu %GGUF_MAIN_GPU% --parallel 1 --jinja --chat-template %GGUF_CHAT_TEMPLATE% --no-webui
+    ) else (
+      echo "%LLAMA_SERVER_EXE%" -m "%GGUF_MODEL_PATH%" --host 127.0.0.1 --port %GGUF_PORT% --ctx-size %GGUF_CTX% --threads %GGUF_THREADS% --gpu-layers %GGUF_N_GPU_LAYERS% --main-gpu %GGUF_MAIN_GPU% --parallel 1 --jinja --chat-template %GGUF_CHAT_TEMPLATE% --no-webui
+    )
     echo if errorlevel 1 echo [WARN] Command exited with code %%%%errorlevel%%%%
   )
 )
@@ -344,7 +419,13 @@ echo [4/6] Preparing WeChat bridge launcher...
   echo set "GEWECHAT_TOKEN=%GEWECHAT_TOKEN%"
   echo set "GEWECHAT_APP_ID=%GEWECHAT_APP_ID%"
   echo set "GEWECHAT_ATS=%GEWECHAT_ATS%"
-  echo "%UV_EXE%" --directory "%CORE_DIR%" run python bridges\wechat_http_bridge.py
+  echo set "SECURE_RELAY_SEND_URL=%SECURE_RELAY_SEND_URL%"
+  echo set "SECURE_RELAY_SHARED_SECRET=%SECURE_RELAY_SHARED_SECRET%"
+  echo set "SECURE_RELAY_WINDOW_SEC=%SECURE_RELAY_WINDOW_SEC%"
+  echo set "SECURE_RELAY_SIGN_HEADER=%SECURE_RELAY_SIGN_HEADER%"
+  echo set "SECURE_RELAY_TS_HEADER=%SECURE_RELAY_TS_HEADER%"
+  echo set "SECURE_RELAY_NONCE_HEADER=%SECURE_RELAY_NONCE_HEADER%"
+  echo "%UV_EXE%" --directory "%CORE_DIR%" run python wechat\bridge\wechat_http_bridge.py
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
 
@@ -437,9 +518,15 @@ if not exist "%CONFIG_FILE%" exit /b 0
 
 call :yaml_get "TTS_PROVIDER" TTS_PROVIDER
 call :yaml_get "LLM_PROVIDER" LLM_PROVIDER
+call :yaml_get "LLM_MODEL_PROFILE" LLM_MODEL_PROFILE
 call :yaml_get "GGUF_BASE_URL" GGUF_BASE_URL
 call :yaml_get "GGUF_MODEL" GGUF_MODEL
 call :yaml_get "GGUF_MODEL_PATH" GGUF_MODEL_PATH
+call :yaml_get "GGUF_QWEN_MODEL" GGUF_QWEN_MODEL
+call :yaml_get "GGUF_QWEN_MODEL_PATH" GGUF_QWEN_MODEL_PATH
+call :yaml_get "GGUF_INTERNVL_MODEL" GGUF_INTERNVL_MODEL
+call :yaml_get "GGUF_INTERNVL_MODEL_PATH" GGUF_INTERNVL_MODEL_PATH
+call :yaml_get "GGUF_MMPROJ_PATH" GGUF_MMPROJ_PATH
 call :yaml_get "GGUF_THREADS" GGUF_THREADS
 call :yaml_get "GGUF_N_GPU_LAYERS" GGUF_N_GPU_LAYERS
 call :yaml_get "GGUF_CTX" GGUF_CTX
@@ -451,6 +538,12 @@ call :yaml_get "GEWECHAT_BASE_URL" GEWECHAT_BASE_URL
 call :yaml_get "GEWECHAT_TOKEN" GEWECHAT_TOKEN
 call :yaml_get "GEWECHAT_APP_ID" GEWECHAT_APP_ID
 call :yaml_get "GEWECHAT_ATS" GEWECHAT_ATS
+call :yaml_get "SECURE_RELAY_SEND_URL" SECURE_RELAY_SEND_URL
+call :yaml_get "SECURE_RELAY_SHARED_SECRET" SECURE_RELAY_SHARED_SECRET
+call :yaml_get "SECURE_RELAY_WINDOW_SEC" SECURE_RELAY_WINDOW_SEC
+call :yaml_get "SECURE_RELAY_SIGN_HEADER" SECURE_RELAY_SIGN_HEADER
+call :yaml_get "SECURE_RELAY_TS_HEADER" SECURE_RELAY_TS_HEADER
+call :yaml_get "SECURE_RELAY_NONCE_HEADER" SECURE_RELAY_NONCE_HEADER
 call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
 call :yaml_get "KOKORO_LANG" KOKORO_LANG
 call :yaml_get "KOKORO_SPEED" KOKORO_SPEED
@@ -501,3 +594,4 @@ set "_WAIT_TRIES="
 set "_WAIT_SLEEP="
 set "_WAIT_I="
 exit /b 1
+

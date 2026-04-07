@@ -47,7 +47,17 @@ class ContextSlice:
             if role not in {"user", "assistant", "system", "tool"}:
                 role = "user"
             messages.append({"role": role, "content": str(item.get("content", ""))})
-        messages.append({"role": "user", "content": self.latest_input})
+
+        latest = str(self.latest_input or "")
+        latest_norm = latest.strip()
+        should_append_latest = bool(latest_norm)
+        if should_append_latest and self.short_history:
+            last_content = str(self.short_history[-1].get("content", "")).strip()
+            if last_content == latest_norm:
+                should_append_latest = False
+
+        if should_append_latest:
+            messages.append({"role": "user", "content": latest})
         return messages
 
 

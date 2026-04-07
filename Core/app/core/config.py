@@ -65,12 +65,14 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")
     llm_base_url: str = Field(default="http://127.0.0.1:8001/v1", alias="LLM_BASE_URL")
     llm_model: str = Field(default="Qwen/Qwen2.5-14B-Instruct-GPTQ-Int4", alias="LLM_MODEL")
+    llm_model_profile: str = Field(default="internvl", alias="LLM_MODEL_PROFILE")
     llm_api_key: str = Field(default="EMPTY", alias="LLM_API_KEY")
-    llm_temperature: float = Field(default=0.7, alias="LLM_TEMPERATURE")
+    llm_temperature: float = Field(default=0.8, alias="LLM_TEMPERATURE")
     llm_top_p: float = Field(default=0.95, alias="LLM_TOP_P")
     llm_stream: bool = Field(default=True, alias="LLM_STREAM")
     llm_max_context: int = Field(default=8192, alias="LLM_MAX_CONTEXT")
     llm_max_output: int = Field(default=512, alias="LLM_MAX_OUTPUT")
+    assistant_max_chars: int = Field(default=260, alias="ASSISTANT_MAX_CHARS")
     # assistant_stream_* 控制“字幕流式回放”的切片大小与时间间隔。
     assistant_stream_chunk_chars: int = Field(default=12, alias="ASSISTANT_STREAM_CHUNK_CHARS")
     assistant_stream_interval_ms: int = Field(default=25, alias="ASSISTANT_STREAM_INTERVAL_MS")
@@ -79,6 +81,10 @@ class Settings(BaseSettings):
     # ===== GGUF / llama.cpp(OpenAI-compatible server) =====
     gguf_base_url: str = Field(default="http://127.0.0.1:8081/v1", alias="GGUF_BASE_URL")
     gguf_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_MODEL")
+    gguf_qwen_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_QWEN_MODEL")
+    gguf_internvl_model: str = Field(default="InternVL-14B", alias="GGUF_INTERNVL_MODEL")
+    gguf_model_path: str = Field(default="", alias="GGUF_MODEL_PATH")
+    gguf_mmproj_path: str = Field(default="", alias="GGUF_MMPROJ_PATH")
 
     # ===== Ollama 原生参数 =====
     # 当 LLM_PROVIDER=ollama 时，LLMRouter 走 /api/chat。
@@ -114,6 +120,7 @@ class Settings(BaseSettings):
     stt_data_ws_url: str = Field(default="ws://127.0.0.1:8012", alias="STT_DATA_WS_URL")
     ocr_base_url: str = Field(default="http://127.0.0.1:9001", alias="OCR_BASE_URL")
     vision_base_url: str = Field(default="http://127.0.0.1:9002", alias="VISION_BASE_URL")
+    screenshot_max_edge: int = Field(default=768, alias="SCREENSHOT_MAX_EDGE")
 
     # ===== 本地仓库路径（主要用于 /health/deps 自检展示）=====
     gpt_sovits_repo: str = Field(
@@ -147,6 +154,7 @@ class Settings(BaseSettings):
     # ===== 运行时节奏参数 =====
     agent_tick_interval_sec: float = Field(default=0.2, alias="AGENT_TICK_INTERVAL_SEC")
     proactive_silence_sec: int = Field(default=300, alias="PROACTIVE_SILENCE_SEC")
+    think_max_continuations: int = Field(default=3, alias="THINK_MAX_CONTINUATIONS")
 
     # ===== 上下文压缩（伪 KV 压缩） =====
     kv_compress_enabled: bool = Field(default=True, alias="KV_COMPRESS_ENABLED")
@@ -169,6 +177,8 @@ class Settings(BaseSettings):
         """Expand env vars / home shorthand in path-like settings."""
         path_fields = (
             "ollama_models_dir",
+            "gguf_model_path",
+            "gguf_mmproj_path",
             "tts_profile_path",
             "kokoro_model_path",
             "kokoro_voices_path",

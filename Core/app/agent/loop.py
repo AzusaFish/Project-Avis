@@ -11,10 +11,13 @@ Beginner note:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import mimetypes
 import re
 from contextlib import suppress
+from pathlib import Path
 
 from app.agent.context_manager import ContextManager, rough_token_count
 from app.agent.memory import MemoryFacade
@@ -22,7 +25,7 @@ from app.agent.planner import parse_model_action
 from app.agent.prompt_builder import build_system_prompt
 from app.core.bus import EventBus
 from app.core.config import settings
-from app.core.events import AgentActionType, Event, EventType
+from app.core.events import AgentActionType, AgentState, Event, EventType
 from app.core.time_utils import format_now_local
 from app.inputs.scheduler import mark_activity
 from app.services.llm_router import LLMRouter
@@ -71,7 +74,25 @@ class AgentLoop:
         self._kv_summary = ""
         self._kv_state_loaded = False
         self._turns_since_kv_compress = max(0, int(settings.kv_compress_min_turns))
+        self._agent_state = AgentState.IDLE
+        self._think_chain_count = 0
         # `_running` 相当于主循环停止标志位。
+
+    async def _set_agent_state(self, state: AgentState) -> None:
+        """Internal helper `_set_agent_state` used by this module implementation."""
+        if self._agent_state == state:
+            return
+        self._agent_state = state
+        await self.frontend.broadcast(
+            {
+                "protocol": "Live2DProtocol",
+                "version": "1.1",
+                "action": "agent_state",
+                "code": 0,
+                "message": "",
+                "data": {"state": state.value},
+            }
+        )
 
     def _ensure_audio_worker(self) -> None:
         """Keep one STT audio worker alive; restart if previous task crashed."""
@@ -170,16 +191,73 @@ class AgentLoop:
         )
 
     @staticmethod
-    def _messages_to_prompt_text(messages: list[dict[str, str]]) -> str:
+    def _estimate_speech_duration_sec(text: str, speed: float = 1.0) -> float:
+        """Estimate speech playback time to reduce premature subtitle replacement."""
+        content = str(text or "").strip()
+        if not content:
+            return 0.0
+        # A simple heuristic for English-like TTS pace with punctuation pause.
+        chars_per_sec = 14.0 * max(0.5, float(speed))
+        punctuation = sum(content.count(ch) for ch in ",.;:!?")
+        return max(0.8, len(content) / chars_per_sec + punctuation * 0.08)
+
+    @staticmethod
+    def _messages_to_prompt_text(messages: list[dict[str, object]]) -> str:
         """Internal helper `_messages_to_prompt_text` used by this module implementation."""
         lines: list[str] = []
         for item in messages:
             role = str(item.get("role", "user")).upper()
-            content = str(item.get("content", ""))
+            content_obj = item.get("content", "")
+            if isinstance(content_obj, list):
+                rendered_parts: list[str] = []
+                for part in content_obj:
+                    if not isinstance(part, dict):
+                        rendered_parts.append(str(part))
+                        continue
+                    part_type = str(part.get("type", "")).lower()
+                    if part_type == "text":
+                        rendered_parts.append(str(part.get("text", "")))
+                    elif part_type == "image_url":
+                        rendered_parts.append("[IMAGE]")
+                    else:
+                        rendered_parts.append(f"[{part_type or 'PART'}]")
+                content = "\n".join(x for x in rendered_parts if x)
+            else:
+                content = str(content_obj)
             lines.append(f"[{role}]\n{content}")
         return "\n\n".join(lines)
 
-    async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, str]], raw_output: str = "") -> None:
+    @staticmethod
+    def _clamp_reply_text(text: str, max_chars: int) -> str:
+        """Clamp overly long model outputs to keep replies concise and TTS-friendly."""
+        content = str(text or "").strip()
+        limit = max(80, int(max_chars))
+        if len(content) <= limit:
+            return content
+
+        cut = content[:limit]
+        punct = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"), cut.rfind(";"))
+        if punct >= int(limit * 0.55):
+            cut = cut[: punct + 1]
+        else:
+            space = cut.rfind(" ")
+            if space >= int(limit * 0.55):
+                cut = cut[:space]
+        return cut.rstrip() + "..."
+
+    @staticmethod
+    def _image_file_to_data_url(path_str: str) -> str:
+        """Load local image file and convert to data URL for multimodal chat payload."""
+        path = Path(path_str)
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"image file not found: {path}")
+        mime, _ = mimetypes.guess_type(path.name)
+        if not mime:
+            mime = "image/png"
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{data}"
+
+    async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, object]], raw_output: str = "") -> None:
         """Internal helper `_emit_llm_debug` used by this module implementation."""
         if not settings.llm_debug_to_frontend:
             return
@@ -392,8 +470,16 @@ class AgentLoop:
             return
 
         raw_user_text = event.payload.get("text", "").strip()
+        silent_input = bool(event.payload.get("silent", False))
+        system_inject = bool(event.payload.get("system_inject", False))
+        is_think_followup = event.source == "agent_think" and silent_input and system_inject
         if not raw_user_text and event.event_type != EventType.SCHEDULE_TICK:
             return
+
+        if not is_think_followup:
+            self._think_chain_count = 0
+
+        vision_image_data_url: str | None = None
 
         if event.event_type == EventType.SCHEDULE_TICK:
             # 定时主动事件：根据积极度动态调整策略。
@@ -423,22 +509,66 @@ class AgentLoop:
                 )
         elif event.event_type == EventType.TOOL_RESULT:
             # 工具回调写入 system 记忆，避免污染 user 语义。
-            await self.memory.append_dialogue("system", f"[TOOL_RESULT] {raw_user_text}")
-            user_text = "Use the latest tool result and continue the conversation naturally."
+            tool_name = str(event.payload.get("tool_name", "")).strip().lower()
+            tool_result = str(event.payload.get("tool_result", "")).strip()
+            if tool_name == "desktop_screenshot":
+                screenshot_path = ""
+                screenshot_question = "Describe what is shown on the screenshot and answer naturally."
+                if tool_result:
+                    try:
+                        obj = json.loads(tool_result)
+                        screenshot_path = str(obj.get("screenshot_path", "")).strip()
+                        q = str(obj.get("question", "")).strip()
+                        if q:
+                            screenshot_question = q
+                    except Exception:
+                        screenshot_path = ""
+
+                if screenshot_path:
+                    try:
+                        vision_image_data_url = self._image_file_to_data_url(screenshot_path)
+                        await self.memory.append_dialogue(
+                            "system",
+                            f"[TOOL_RESULT] screenshot_path={screenshot_path}",
+                        )
+                        user_text = (
+                            "You now have a fresh desktop screenshot. "
+                            f"Task: {screenshot_question}. "
+                            "Interpret the image directly yourself and reply concisely in style."
+                        )
+                    except Exception as exc:
+                        await self.memory.append_dialogue(
+                            "system",
+                            f"[TOOL_RESULT] screenshot unusable: {exc}",
+                        )
+                        user_text = "Use the latest tool result and continue the conversation naturally."
+                else:
+                    await self.memory.append_dialogue("system", f"[TOOL_RESULT] {raw_user_text}")
+                    user_text = "Use the latest tool result and continue the conversation naturally."
+            else:
+                await self.memory.append_dialogue("system", f"[TOOL_RESULT] {raw_user_text}")
+                user_text = "Use the latest tool result and continue the conversation naturally."
         else:
             user_text = raw_user_text
-            mark_activity(kind="user_text", text=user_text)
-            await self.memory.append_dialogue("user", user_text)
-            await self.frontend.broadcast(
-                {
-                    "protocol": "Live2DProtocol",
-                    "version": "1.1",
-                    "action": "add_history",
-                    "code": 0,
-                    "message": "",
-                    "data": {"role": "user", "text": user_text},
-                }
-            )
+            if system_inject:
+                await self.memory.append_dialogue("system", user_text)
+            elif silent_input:
+                await self.memory.append_dialogue("system", f"[SILENT_INPUT] {user_text}")
+            else:
+                mark_activity(kind="user_text", text=user_text)
+                await self.memory.append_dialogue("user", user_text)
+                await self.frontend.broadcast(
+                    {
+                        "protocol": "Live2DProtocol",
+                        "version": "1.1",
+                        "action": "add_history",
+                        "code": 0,
+                        "message": "",
+                        "data": {"role": "user", "text": user_text},
+                    }
+                )
+
+        await self._set_agent_state(AgentState.THINKING)
 
         self._turns_since_kv_compress += 1
 
@@ -470,6 +600,14 @@ class AgentLoop:
         )
 
         messages = ctx.render_messages()
+        if vision_image_data_url and messages:
+            messages[-1] = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": vision_image_data_url}},
+                ],
+            }
         await self._emit_llm_debug(stage="request", messages=messages)
 
         stream_preview_text = ""
@@ -514,19 +652,153 @@ class AgentLoop:
 
         if plan.action.action_type == AgentActionType.TOOL_CALL and plan.action.tool_name:
             # 工具调用走“再入队”模式：把结果作为 TOOL_RESULT 让下一轮继续推理。
+            self._think_chain_count = 0
             tool_result = await self.tools.call(plan.action.tool_name, plan.action.tool_args or {})
             await self.bus.publish(
                 Event(
                     event_type=EventType.TOOL_RESULT,
                     source="tool",
-                    payload={"text": f"Tool result: {tool_result}"},
+                    payload={
+                        "text": f"Tool result: {tool_result}",
+                        "tool_name": plan.action.tool_name,
+                        "tool_result": tool_result,
+                    },
                 )
+            )
+            return
+
+        if plan.action.action_type == AgentActionType.THINK:
+            # think 分支：先把当前续说内容输出给用户，再静默注入继续下一句。
+            text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
+            if text:
+                mark_activity(kind="assistant_response")
+                await self.memory.append_dialogue("assistant", text)
+
+                if settings.llm_stream:
+                    if stream_preview_text != text:
+                        await self.frontend.broadcast(
+                            {
+                                "protocol": "Live2DProtocol",
+                                "version": "1.1",
+                                "action": "assistant_stream",
+                                "code": 0,
+                                "message": "",
+                                "data": {"text": text},
+                            }
+                        )
+                else:
+                    await self._emit_assistant_stream(text)
+
+                if not settings.tts_streaming_mode:
+                    await self.tts.speak(text=text, emotion=plan.action.emotion or "thinking")
+
+                await self.frontend.broadcast(
+                    {
+                        "protocol": "Live2DProtocol",
+                        "version": "1.1",
+                        "action": "add_history",
+                        "code": 0,
+                        "message": "",
+                        "data": {"role": "assistant", "text": text},
+                    }
+                )
+                await self.frontend.broadcast(
+                    {
+                        "protocol": "Live2DProtocol",
+                        "version": "1.1",
+                        "action": "live2d_action",
+                        "code": 0,
+                        "message": "",
+                        "data": {
+                            "action_name": EMOTION_TO_ACTION.get(plan.action.emotion or "thinking", "得意")
+                        },
+                    }
+                )
+                await self.bus.publish(
+                    Event(
+                        event_type=EventType.AGENT_RESPONSE,
+                        source="agent",
+                        payload={"text": text, "emotion": plan.action.emotion or "thinking"},
+                    )
+                )
+
+            max_rounds = max(1, int(settings.think_max_continuations))
+            next_round = self._think_chain_count + 1
+            if next_round >= max_rounds:
+                self._think_chain_count = 0
+                await self._set_agent_state(AgentState.IDLE)
+                return
+
+            self._think_chain_count = next_round
+
+            if settings.tts_streaming_mode and text:
+                await asyncio.sleep(self._estimate_speech_duration_sec(text, settings.kokoro_speed))
+
+            await self.bus.publish(
+                Event(
+                    event_type=EventType.USER_TEXT,
+                    source="agent_think",
+                    payload={
+                        "text": "[SYSTEM: Continue speaking naturally from where you stopped. Output the next visible segment only.]",
+                        "silent": True,
+                        "system_inject": True,
+                    },
+                )
+            )
+            return
+
+        if plan.action.action_type == AgentActionType.ASK:
+            # ask 分支：输出提问后交还控制权，等待用户输入。
+            self._think_chain_count = 0
+            text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
+            if text:
+                await self.memory.append_dialogue("assistant", text)
+                if settings.llm_stream:
+                    if stream_preview_text != text:
+                        await self.frontend.broadcast(
+                            {
+                                "protocol": "Live2DProtocol",
+                                "version": "1.1",
+                                "action": "assistant_stream",
+                                "code": 0,
+                                "message": "",
+                                "data": {"text": text},
+                            }
+                        )
+                else:
+                    await self._emit_assistant_stream(text)
+
+                if not settings.tts_streaming_mode:
+                    await self.tts.speak(text=text, emotion=plan.action.emotion or "neutral")
+
+                await self.frontend.broadcast(
+                    {
+                        "protocol": "Live2DProtocol",
+                        "version": "1.1",
+                        "action": "add_history",
+                        "code": 0,
+                        "message": "",
+                        "data": {"role": "assistant", "text": text},
+                    }
+                )
+
+            await self._set_agent_state(AgentState.ASKING)
+            await self.frontend.broadcast(
+                {
+                    "protocol": "Live2DProtocol",
+                    "version": "1.1",
+                    "action": "show_user_text_input",
+                    "code": 0,
+                    "message": "",
+                    "data": {"reason": "ask", "prompt": text},
+                }
             )
             return
 
         if plan.action.action_type == AgentActionType.SPEAK and plan.action.content:
             # speak 分支：写记忆 -> 推字幕 -> 播语音 -> 推动作 -> 发响应事件。
-            text = plan.action.content.strip()
+            self._think_chain_count = 0
+            text = self._clamp_reply_text(plan.action.content, settings.assistant_max_chars)
             mark_activity(kind="assistant_response")
             await self.memory.append_dialogue("assistant", text)
             if settings.llm_stream:
@@ -576,4 +848,10 @@ class AgentLoop:
                     payload={"text": text, "emotion": plan.action.emotion or "neutral"},
                 )
             )
+            await self._set_agent_state(AgentState.IDLE)
+            return
+
+        if plan.action.action_type == AgentActionType.IDLE:
+            self._think_chain_count = 0
+            await self._set_agent_state(AgentState.IDLE)
 

@@ -9,9 +9,12 @@ Beginner note:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 import threading
 import time
 import traceback
@@ -21,7 +24,7 @@ from collections import deque
 from typing import Any
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -47,6 +50,13 @@ WCFERRY_AUTO_RECV = os.getenv("WCFERRY_AUTO_RECV", "1").strip() not in {"0", "fa
 ITCHAT_ENABLE_CMD_QR = int(os.getenv("ITCHAT_ENABLE_CMD_QR", "2"))
 ITCHAT_HOT_RELOAD = os.getenv("ITCHAT_HOT_RELOAD", "1").strip() not in {"0", "false", "False"}
 ITCHAT_RETRY_SEC = max(2.0, float(os.getenv("ITCHAT_RETRY_SEC", "5")))
+
+SECURE_RELAY_SEND_URL = os.getenv("SECURE_RELAY_SEND_URL", "").strip()
+SECURE_RELAY_SHARED_SECRET = os.getenv("SECURE_RELAY_SHARED_SECRET", "").strip()
+SECURE_RELAY_SIGN_HEADER = os.getenv("SECURE_RELAY_SIGN_HEADER", "X-Relay-Signature").strip() or "X-Relay-Signature"
+SECURE_RELAY_TS_HEADER = os.getenv("SECURE_RELAY_TS_HEADER", "X-Relay-Timestamp").strip() or "X-Relay-Timestamp"
+SECURE_RELAY_NONCE_HEADER = os.getenv("SECURE_RELAY_NONCE_HEADER", "X-Relay-Nonce").strip() or "X-Relay-Nonce"
+SECURE_RELAY_WINDOW_SEC = max(30, int(float(os.getenv("SECURE_RELAY_WINDOW_SEC", "300"))))
 
 try:
     GEWECHAT_ATS = json.loads(GEWECHAT_ATS_RAW)
@@ -84,6 +94,52 @@ def _as_float(value: Any, default: float) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _canonical_json(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _secure_relay_signature(payload: Any, timestamp: str, nonce: str) -> str:
+    if not SECURE_RELAY_SHARED_SECRET:
+        return ""
+    body = _canonical_json(payload)
+    sign_source = f"{timestamp}.{nonce}.{body}".encode("utf-8")
+    return hmac.new(SECURE_RELAY_SHARED_SECRET.encode("utf-8"), sign_source, hashlib.sha256).hexdigest()
+
+
+def _build_secure_relay_headers(payload: Any) -> dict[str, str]:
+    timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
+    signature = _secure_relay_signature(payload, timestamp, nonce)
+    return {
+        SECURE_RELAY_TS_HEADER: timestamp,
+        SECURE_RELAY_NONCE_HEADER: nonce,
+        SECURE_RELAY_SIGN_HEADER: signature,
+    }
+
+
+def _verify_secure_relay_signature(payload: Any, timestamp: str, nonce: str, signature: str) -> tuple[bool, str]:
+    if not SECURE_RELAY_SHARED_SECRET:
+        return False, "missing shared secret"
+    if not timestamp or not nonce or not signature:
+        return False, "missing auth headers"
+
+    try:
+        ts = int(timestamp)
+    except Exception:
+        return False, "invalid timestamp"
+
+    if abs(int(time.time()) - ts) > SECURE_RELAY_WINDOW_SEC:
+        return False, "timestamp expired"
+
+    expected = _secure_relay_signature(payload, timestamp, nonce)
+    if not expected:
+        return False, "signature build failed"
+    if not hmac.compare_digest(expected, signature):
+        return False, "signature mismatch"
+
+    return True, "ok"
 
 _inbox: deque[dict[str, Any]] = deque(maxlen=INBOX_MAX)
 _outbox: deque[dict[str, Any]] = deque(maxlen=OUTBOX_MAX)
@@ -415,6 +471,8 @@ async def root() -> dict[str, Any]:
         "itchat_state": _itchat_state,
         "itchat_last_error": _itchat_last_error,
         "itchat_last_event_ts": _itchat_last_event_ts,
+        "secure_relay_send_configured": bool(SECURE_RELAY_SEND_URL),
+        "secure_relay_secret_configured": bool(SECURE_RELAY_SHARED_SECRET),
     }
 
 
@@ -423,6 +481,32 @@ async def root() -> dict[str, Any]:
 @app.post("/ingest")
 async def push(payload: Any = Body(default={})) -> dict[str, Any]:
     """Ingest inbound messages from external WeChat adapter."""
+    if WECHAT_BRIDGE_PROVIDER == "secure_relay":
+        raise HTTPException(
+            status_code=403,
+            detail="unsigned ingest is disabled when WECHAT_BRIDGE_PROVIDER=secure_relay; use /secure-relay/ingest",
+        )
+
+    messages = _extract_messages(payload)
+    count = await _enqueue_messages(messages)
+    return {"ok": True, "accepted": count}
+
+
+@app.post("/secure-relay/ingest")
+async def secure_relay_ingest(
+    payload: Any = Body(default={}),
+    relay_signature: str = Header(default="", alias=SECURE_RELAY_SIGN_HEADER),
+    relay_timestamp: str = Header(default="", alias=SECURE_RELAY_TS_HEADER),
+    relay_nonce: str = Header(default="", alias=SECURE_RELAY_NONCE_HEADER),
+) -> dict[str, Any]:
+    """Ingest signed payload from trusted relay."""
+    if WECHAT_BRIDGE_PROVIDER != "secure_relay":
+        raise HTTPException(status_code=403, detail="/secure-relay/ingest is only enabled for secure_relay provider")
+
+    ok, reason = _verify_secure_relay_signature(payload, relay_timestamp, relay_nonce, relay_signature)
+    if not ok:
+        raise HTTPException(status_code=401, detail=f"secure relay auth failed: {reason}")
+
     messages = _extract_messages(payload)
     count = await _enqueue_messages(messages)
     return {"ok": True, "accepted": count}
@@ -557,6 +641,23 @@ async def send(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
             return {"ok": False, "message": f"itchat send failed: {exc}"}
 
         return {"ok": True, "message": "forwarded", "to": target}
+
+    if WECHAT_BRIDGE_PROVIDER == "secure_relay":
+        if not SECURE_RELAY_SEND_URL:
+            raise HTTPException(status_code=503, detail="SECURE_RELAY_SEND_URL is required when WECHAT_BRIDGE_PROVIDER=secure_relay")
+        if not SECURE_RELAY_SHARED_SECRET:
+            raise HTTPException(status_code=503, detail="SECURE_RELAY_SHARED_SECRET is required when WECHAT_BRIDGE_PROVIDER=secure_relay")
+
+        headers = _build_secure_relay_headers(outbound)
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(SECURE_RELAY_SEND_URL, json=outbound, headers=headers)
+            resp.raise_for_status()
+            try:
+                upstream_data = resp.json()
+            except Exception:
+                upstream_data = {"raw": resp.text}
+
+        return {"ok": True, "message": "forwarded", "upstream": upstream_data}
 
     record = {
         "id": uuid.uuid4().hex,

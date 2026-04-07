@@ -1,0 +1,1 @@
+"""Centralized WeChat integration package."""
