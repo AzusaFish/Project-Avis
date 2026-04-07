@@ -22,13 +22,3 @@ speakers:
     top_p: 1.0
     temperature: 1.0
     speed_factor: 1.0
-    by_emotion:
-      happy:
-        ref_audio_path: ./assets/voices/neutral.wav
-        prompt_text: 太好了，今天状态很棒。
-      angry:
-        ref_audio_path: ./assets/voices/neutral.wav
-        prompt_text: 别闹了，认真一点。
-      sad:
-        ref_audio_path: ./assets/voices/neutral.wav
-        prompt_text: 没关系，我们慢慢来。

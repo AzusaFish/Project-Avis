@@ -72,7 +72,7 @@ Tuning/LLaMa_Factory/InternVL3_0-14B-abliterated/
 # Large components and Local Data
 # =====================
 RealtimeSTT-master/
-Used/
+Genie-TTS-master/
 
 # Kokoro large model artifacts (local only)
 Core/assets/kokoro/*.onnx

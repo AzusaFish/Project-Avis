@@ -107,6 +107,10 @@ if exist "%GGUF_MODEL_PATH%\" (
   set "_GGUF_MODEL_FILE="
   set "_GGUF_MMPROJ_FILE="
 
+  if defined GGUF_MODEL if exist "!_GGUF_DIR!\%GGUF_MODEL%" (
+    set "_GGUF_MODEL_FILE=!_GGUF_DIR!\%GGUF_MODEL%"
+  )
+
   for %%F in ("!_GGUF_DIR!\*mmproj*.gguf") do (
     if not defined _GGUF_MMPROJ_FILE set "_GGUF_MMPROJ_FILE=%%~fF"
   )

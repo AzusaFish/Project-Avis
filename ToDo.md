@@ -136,3 +136,123 @@
 7. ~~做一个config.html/debug.html，可视化修改config/debug~~（已完成：新增 `live2d-desktop/public/config.html` 与 `live2d-desktop/public/debug.html`）
 
 8. ~~做一个可视化的记忆管理系统。tauri~~（已完成：新增 `live2d-desktop/public/memory.html`，支持查询/编辑/删除/清空记忆）
+
+---
+
+## **五、记忆模块二期（仅列未完成/部分完成项，按难度排序）**
+
+说明：以下清单基于当前代码状态整理，已落地能力（SQLite 基础对话存储、Chroma 基础检索、memory_reflector 基础总结）不重复列出。
+
+### **L1（简单）—— 先把“短期记忆可控”做扎实**
+
+1. **短期记忆结构从 dialogue 扩展为可控 Buffer（兼容迁移）**
+   * **目标**：支持上下文窗口裁剪、重要条目钉住、截图路径和情绪标签，避免短期记忆“只有文本”导致后续策略无法落地。
+   * **技术细节**：
+     * 新建 `short_term_buffer`（或在现有 `dialogue` 基础上增列）
+     * 字段建议：`msg_id`、`timestamp`、`role`、`content`、`emotion_vector`(JSON)、`importance_score`(REAL)、`screenshot_path`、`token_estimate`、`processed_flag`
+     * 建立索引：`idx_stb_timestamp`、`idx_stb_importance`、`idx_stb_processed`
+     * 做无损迁移脚本：`dialogue -> short_term_buffer`，并保留回滚 SQL
+   * **验收标准**：
+     * 启动迁移后历史对话不丢失
+     * 新写入链路可同时写入 `content + importance_score + emotion_vector`
+     * API 层可分页查询并按重要度排序
+
+2. **上下文窗口管理器（FIFO + 重要记忆钉住）**
+   * **目标**：避免把所有历史硬塞进 Prompt；保证“普通记忆可衰减，关键记忆可保留”。
+   * **技术细节**：
+     * 取最近 N 条时按双通道拼接：`recent_window + pinned_items`
+     * `pinned_items` 规则：`importance_score >= threshold`
+     * 先按 token 预算裁剪，再拼接 system 约束
+   * **验收标准**：
+     * Prompt 长度稳定在预算内
+     * 高重要度条目即使超出时间窗仍可被挂载
+
+3. **短期记忆写入策略统一（文本/截图/工具结果）**
+   * **目标**：把“IDE 报错截图路径、工具事实、情绪标签”统一写入短期记忆，不再散落在多个事件分支。
+   * **技术细节**：
+     * 统一入口：`append_short_term_memory(event)`
+     * `tool_result` 统一转 `role=system/tool`，避免污染 `role=user`
+     * 截图类事件只存路径与摘要，不存大体积二进制
+   * **验收标准**：
+     * 任意一轮对话都能追溯“文本+截图路径+工具结果”的完整上下文
+
+### **L2（中等）—— 让“情绪偏见记忆”成为可计算模型**
+
+4. **情绪化记忆衰减模型（Emotional Decay）**
+   * **目标**：将“普通记忆快衰减，强负面记忆慢衰减”变成可调数学模型。
+   * **技术细节**：
+     * 核心公式：`W_t = W_0 * exp(-lambda * t)`
+     * `W_0` 来源：文本信息量 + 事件严重度 + 情绪强度
+     * `lambda` 来源：`emotion_vector` 映射函数（高强度负面 -> 更小 lambda）
+     * 每次检索前动态计算 `effective_score = W_t + rule_bonus`
+   * **验收标准**：
+     * 低价值闲聊在 24-72h 内明显下沉
+     * 高价值冲突/报错复盘在同等时间下排名更靠前
+
+5. **Chroma 检索升级为“语义 + 时间 + 重要度”混合排序**
+   * **目标**：避免纯向量相似度导致旧垃圾片段反复命中。
+   * **技术细节**：
+     * 召回阶段：`top_k_semantic`
+     * 重排阶段：融合 `semantic_score + recency_score + effective_importance`
+     * Metadata 增加：`topic_tags`、`emotion_tag`、`source_event`
+   * **验收标准**：
+     * 同主题检索结果中，近期关键记忆优先于陈旧闲聊
+
+### **L3（困难）—— 引入 GraphDB“翻旧账引擎”**
+
+6. **GraphDB 基础接入（Memgraph/Neo4j 二选一）**
+   * **目标**：落地实体-关系-事件图谱，支持“你上次也犯过这个错”的因果回忆。
+   * **技术细节**：
+     * 节点：`Person`、`Event`、`Error`、`Project`、`Emotion`
+     * 边：`COMMITTED_AT`、`OCCURRED_IN`、`FEELS`、`RELATES_TO`
+     * 统一图谱写入接口：`graph_store.upsert_triplets(triplets)`
+     * 幂等键设计：`(subject, relation, object, day_bucket)`
+   * **验收标准**：
+     * 可执行 Cypher 查询返回最近同类错误事件
+     * 重复写入不会造成图爆炸（幂等有效）
+
+7. **Triplets 提取与冲突合并策略**
+   * **目标**：把梦境总结结果稳定转换为图谱事实，而不是一次性噪声。
+   * **技术细节**：
+     * LLM 输出固定 JSON：`[{s, p, o, confidence, evidence_id}]`
+     * 低置信度先入“候选区”，高置信度入正式图
+     * 冲突关系（同主体同谓词不同客体）按时间与置信度决策覆盖或并存
+   * **验收标准**：
+     * 图谱新增事实可追溯来源消息 ID
+     * 冲突样本不再无脑覆盖
+
+### **L4（很困难）—— 完整离线梦境流水线与 GC 闭环**
+
+8. **将现有 memory_reflector 扩展为完整“梦境固化 Pipeline”**
+   * **目标**：把“已有总结写 Chroma”升级为“摘要 + 图谱 + 向量 + 清理”一条龙。
+   * **技术细节**：
+     * Stage A：从 `short_term_buffer` 抽取未处理记录（24h 窗口）
+     * Stage B：LLM 生成 `summary + triplets + tags`
+     * Stage C：写入 Chroma（summary）
+     * Stage D：写入 GraphDB（triplets）
+     * Stage E：GC（删除低价值已固化记录，仅保留高重要锚点）
+     * 全流程要求幂等：失败可重跑，不重复写入
+   * **验收标准**：
+     * 连续运行 7 天后，SQLite 体量稳定不膨胀
+     * Chroma 与 GraphDB 都能查到同一事件的“语义+关系”两种视图
+
+9. **可观测性与回归测试（必须项）**
+   * **目标**：防止记忆系统变成“看似运行、实际失效”。
+   * **技术细节**：
+     * 指标：反思触发次数、成功率、单次处理条数、GC 删除量、图谱写入量
+     * 增加 e2e 回归样例：
+       * 同类错误复发 -> 可召回上次错误
+       * 高情绪冲突 -> 衰减后仍可被命中
+       * 普通闲聊 -> 若干天后自动下沉
+   * **验收标准**：
+     * 有可读 dashboard 或 health detail 字段
+     * 核心记忆路径具备自动化回归测试
+
+---
+
+## **建议执行顺序（避免返工）**
+
+1. 先做 L1（结构和窗口控制）。
+2. 再做 L2（衰减与混合检索）。
+3. 然后 L3（GraphDB 与 triplets）。
+4. 最后 L4（梦境流水线闭环 + 回归与监控）。
