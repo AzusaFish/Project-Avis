@@ -71,6 +71,8 @@ class AgentLoop:
         self._system_prompt = build_system_prompt()
         self._audio_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=64)
         self._audio_worker_task: asyncio.Task | None = None
+        self._stt_flush_gap_sec = 0.45
+        self._stt_max_buffer_sec = 8.0
         self._kv_summary = ""
         self._kv_state_loaded = False
         self._turns_since_kv_compress = max(0, int(settings.kv_compress_min_turns))
@@ -100,16 +102,84 @@ class AgentLoop:
             return
         self._audio_worker_task = asyncio.create_task(self._audio_worker(), name="audio_worker")
 
+    @staticmethod
+    def _decode_audio_payload(payload: dict[str, object]) -> tuple[bytes, int] | None:
+        """Decode one queue payload into pcm bytes and sample rate."""
+        audio = str(payload.get("audio", ""))
+        if not audio:
+            return None
+        try:
+            pcm = base64.b64decode(audio)
+        except Exception:
+            return None
+        if not pcm:
+            return None
+        try:
+            sample_rate = int(payload.get("sample_rate", 16000))
+        except Exception:
+            sample_rate = 16000
+        if sample_rate < 8000 or sample_rate > 96000:
+            sample_rate = 16000
+        return pcm, sample_rate
+
     async def _audio_worker(self) -> None:
         """Consume audio chunks serially to protect event loop from STT backpressure."""
         while self._running:
             payload = await self._audio_queue.get()
+            taken = 1
             try:
-                audio = str(payload.get("audio", ""))
-                sample_rate = int(payload.get("sample_rate", 16000))
-                if not audio:
+                decoded_chunks: list[tuple[bytes, int]] = []
+                first = self._decode_audio_payload(payload)
+                if first is not None:
+                    decoded_chunks.append(first)
+
+                buffered_sec = 0.0
+                if decoded_chunks:
+                    buffered_sec = len(decoded_chunks[0][0]) / (2 * decoded_chunks[0][1])
+
+                while self._running and buffered_sec < self._stt_max_buffer_sec:
+                    try:
+                        next_payload = await asyncio.wait_for(
+                            self._audio_queue.get(),
+                            timeout=self._stt_flush_gap_sec,
+                        )
+                    except TimeoutError:
+                        break
+                    taken += 1
+                    decoded = self._decode_audio_payload(next_payload)
+                    if decoded is None:
+                        continue
+                    decoded_chunks.append(decoded)
+                    buffered_sec += len(decoded[0]) / (2 * decoded[1])
+
+                if not decoded_chunks:
                     continue
-                text = (await self.stt.transcribe_chunk(audio, sample_rate=sample_rate)).strip()
+
+                sample_rate = decoded_chunks[0][1]
+                merged_parts: list[bytes] = []
+                for pcm, sr in decoded_chunks:
+                    if sr != sample_rate:
+                        logger.warning(
+                            "audio chunk sample_rate changed within one utterance: %s -> %s; dropping mismatched chunk",
+                            sample_rate,
+                            sr,
+                        )
+                        continue
+                    merged_parts.append(pcm)
+                if not merged_parts:
+                    continue
+
+                merged_pcm = b"".join(merged_parts)
+                buffered_sec = len(merged_pcm) / (2 * sample_rate)
+                timeout_sec = max(6.0, min(18.0, buffered_sec * 2.0 + 2.0))
+                merged_b64 = base64.b64encode(merged_pcm).decode("ascii")
+                text = (
+                    await self.stt.transcribe_chunk(
+                        merged_b64,
+                        sample_rate=sample_rate,
+                        timeout_sec=timeout_sec,
+                    )
+                ).strip()
                 if text:
                     mark_activity()
                     await self.bus.publish(
@@ -122,7 +192,8 @@ class AgentLoop:
             except Exception:
                 logger.exception("audio worker failed while transcribing chunk")
             finally:
-                self._audio_queue.task_done()
+                for _ in range(taken):
+                    self._audio_queue.task_done()
 
     async def run_forever(self) -> None:
         # 启动主事件循环，不断消费总线事件并分派处理。

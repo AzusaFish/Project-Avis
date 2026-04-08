@@ -19,6 +19,7 @@
 **/.mypy_cache/
 **/.coverage
 **/.hypothesis/
+.cache/
 
 # =====================
 # Node / frontend
@@ -87,9 +88,11 @@ Core/data/chroma/
 Core/QR.png
 Core/itchat.pkl
 
-# Model
+# Model and Data
 Model/
-
+Data/
 
 # Others
 ToDo.md
+Core/instructions/
+instructions/

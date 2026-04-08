@@ -23,14 +23,26 @@ class STTService:
         self.provider = settings.stt_provider
         self.base_url = settings.stt_base_url.rstrip("/")
 
-    async def transcribe_chunk(self, pcm_base64: str, sample_rate: int = 16000) -> str:
+    async def transcribe_chunk(
+        self,
+        pcm_base64: str,
+        sample_rate: int = 16000,
+        timeout_sec: float | None = None,
+    ) -> str:
         # 上传音频分片并返回转写文本。
         # 约定：`pcm_base64` 是 PCM16 原始帧的 Base64 字符串。
         """Public API `transcribe_chunk` used by other modules or route handlers."""
+        payload: dict[str, object] = {
+            "audio": pcm_base64,
+            "sample_rate": sample_rate,
+        }
+        if timeout_sec is not None and timeout_sec > 0:
+            payload["timeout_sec"] = float(timeout_sec)
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{self.base_url}/transcribe",
-                json={"audio": pcm_base64, "sample_rate": sample_rate},
+                json=payload,
             )
             resp.raise_for_status()
             return resp.json().get("text", "")

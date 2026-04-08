@@ -26,7 +26,7 @@ class TranscribeReq(BaseModel):
     """TranscribeReq: main class container for related behavior in this module."""
     audio: str
     sample_rate: int = 16000
-    timeout_sec: float = 6.0
+    timeout_sec: float = 12.0
 
 
 @dataclass(slots=True)
@@ -112,10 +112,13 @@ class RealtimeSTTBridge:
                 _ = self.queue.get_nowait()
 
             pcm = base64.b64decode(pcm_base64)
+            safe_sample_rate = max(1, int(sample_rate))
+            audio_duration_sec = len(pcm) / (2 * safe_sample_rate)
 
             await self._send_control({"command": "call_method", "method": "start", "args": [], "kwargs": {}})
             await self.data_ws.send(self._build_binary_packet(pcm, sample_rate))
-            await asyncio.sleep(0.15)
+            settle_sec = min(1.5, max(0.15, audio_duration_sec * 0.35))
+            await asyncio.sleep(settle_sec)
             await self._send_control({"command": "call_method", "method": "stop", "args": [], "kwargs": {}})
 
             deadline = asyncio.get_running_loop().time() + timeout_sec
