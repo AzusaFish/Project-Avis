@@ -25,6 +25,8 @@ It does all required steps in order:
 - run prepare_neuro_lf_data.py
 - run SFT (train_neuro_sft_lora.yaml)
 - run DPO (train_neuro_dpo_lora.yaml)
+- merge LoRA to HF model and export GGUF
+- quantize to Q4_K_M and deploy to Model/Tuned1
 
 Useful options:
 
@@ -32,7 +34,10 @@ Useful options:
 start_everything.bat
 start_everything.bat --dry-run
 start_everything.bat --no-pause
+start_everything.bat --export-only
 ```
+
+`--export-only` will skip prepare/SFT/DPO and export GGUF from existing DPO adapter output.
 
 Generated files:
 - datasets/neuro_sft_en.json
@@ -48,6 +53,10 @@ Generated files:
 
 - SFT adapter: outputs/neuro_sft_lora_internvl35_14b
 - DPO adapter: outputs/neuro_dpo_lora_internvl35_14b
+- F16 GGUF: exports/neuro_dpo/gguf/neuro-internvl35-14b.F16.gguf
+- Q4 GGUF: exports/neuro_dpo/gguf/neuro-internvl35-14b.Q4_K_M.gguf
+- MMPROJ GGUF: exports/neuro_dpo/gguf/mmproj-neuro-internvl35-14b.F16.gguf
+- deployed copies: ../../Model/Tuned1
 
 ## Notes for your 16 GB VRAM card
 
@@ -60,7 +69,8 @@ Generated files:
 
 ## Dependencies
 
-- LLaMA-Factory installed in .conda-lf by setup_lf_env_5070ti.bat.
+- LLaMA-Factory and required Python packages are auto-installed by start_everything.bat.
+- llama.cpp converter and quantizer are expected at tools/llama.cpp.
 - pandas + pyarrow for parquet loading.
 - Ollama optional for cleaning. If enabled, install at least one model first (for example: ollama pull qwen2.5:7b).
 

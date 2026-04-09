@@ -101,8 +101,11 @@ Core/itchat.pkl
 Model/
 Data/
 Tuning/LLaMa_Factory/datasets
+Tuning/Data_Collection/
 
 # Others
 ToDo.md
 Core/instructions/
 Tuning/LLaMa_Factory/tools/
+/Tuning/Data_Collection
+Tuning/Data_Collection/neuro.py
