@@ -33,13 +33,20 @@ LLM_DEBUG_TO_FRONTEND: true
 
 # GGUF / llama.cpp(OpenAI-compatible server)
 GGUF_BASE_URL: http://127.0.0.1:8081/v1
-GGUF_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
-GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
+# GGUF_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
+# GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
+# GGUF_QWEN_MODEL: Avis_ver1.gguf
+# GGUF_QWEN_MODEL_PATH: ./Model/Avis_ver1.gguf
+# GGUF_INTERNVL_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
+# GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
+# GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\mmproj-OpenGVLab_InternVL3_5-14B-f16.gguf
+GGUF_MODEL: neuro-internvl35-14b.Q4_K_M.gguf
+GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1
 GGUF_QWEN_MODEL: Avis_ver1.gguf
 GGUF_QWEN_MODEL_PATH: ./Model/Avis_ver1.gguf
-GGUF_INTERNVL_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
-GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
-GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\mmproj-OpenGVLab_InternVL3_5-14B-f16.gguf
+GGUF_INTERNVL_MODEL: neuro-internvl35-14b.Q4_K_M.gguf
+GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1
+GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1\mmproj-neuro-internvl35-14b.F16.gguf
 GGUF_THREADS: 10
 GGUF_N_GPU_LAYERS: 99
 GGUF_CTX: 8192

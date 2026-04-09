@@ -1,0 +1,27 @@
+{
+  "neuro_sft_en": {
+    "file_name": "neuro_sft_en.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    }
+  },
+  "neuro_uncensored_dpo_en": {
+    "file_name": "neuro_uncensored_dpo_en.json",
+    "ranking": true,
+    "formatting": "alpaca",
+    "columns": {
+      "prompt": "prompt",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "neuro_vl_coco_subset": {
+    "file_name": "neuro_vl_coco_subset.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages",
+      "images": "images"
+    }
+  }
+}

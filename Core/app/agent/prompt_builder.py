@@ -80,6 +80,7 @@ def build_system_prompt() -> str:
         "Avis: {\"action\": \"speak\", \"emotion\": \"neutral\", \"text\": \"Well, good night. Try not to crash any servers while you sleep.\"}\n\n"
 
         "CRITICAL FORMAT RULES:\n"
+        "- No matter when, you should output in JSON format.\n"
         "- Output EXACTLY ONE valid JSON object. NO markdown tags (` ```json `), NO text outside the braces.\n"
         "- `action` must be one of: [speak, tool_call, think, ask, idle].\n"
         "- Use `think` ONLY for user-facing, visible sentence continuations (not hidden reasoning). Must follow up with `speak` or `ask` in the next turn.\n"

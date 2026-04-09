@@ -1,0 +1,47 @@
+### model
+model_name_or_path: InternVL3_5-14B-HF
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+quantization_bit: 4
+
+### dataset
+dataset: neuro_sft_en,neuro_vl_coco_subset
+dataset_dir: D:/AzusaFish/Codes/Development/Project-Avis/Tuning/LLaMa_Factory/datasets
+template: intern_vl
+cutoff_len: 384
+max_samples: 1000000
+overwrite_cache: true
+preprocessing_num_workers: 1
+mix_strategy: interleave_under
+interleave_probs: 0.65,0.35
+
+### output
+output_dir: outputs/neuro_sft_lora_internvl35_14b
+logging_steps: 10
+save_steps: 200
+plot_loss: true
+overwrite_output_dir: true
+save_total_limit: 3
+
+### train
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32
+learning_rate: 8e-05
+num_train_epochs: 5.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+bf16: true
+flash_attn: auto
+gradient_checkpointing: true
+dataloader_num_workers: 0
+
+### eval
+val_size: 0.02
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 200

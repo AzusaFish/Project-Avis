@@ -6,6 +6,7 @@
 **/.venv/
 **/venv/
 **/env/
+.conda-lf/
 
 # =====================
 # Python caches / build
@@ -20,6 +21,7 @@
 **/.coverage
 **/.hypothesis/
 .cache/
+llamaboard_cache/
 
 # =====================
 # Node / frontend
@@ -69,6 +71,12 @@ Core/third_party/
 #Unsloth/
 Tuning/LLaMa_Factory/InternVL3_5-14B-HF/
 Tuning/LLaMa_Factory/InternVL3_0-14B-abliterated/
+Tuning/LLaMa_Factory/.conda/
+Tuning/LLaMa_Factory/.conda-lf/
+Tuning/LLaMa_Factory/.hf/
+Tuning/LLaMa_Factory/.hfa/
+Tuning/LLaMa_Factory/.hfd/
+Tuning/LLaMa_Factory/.hfh/
 # =====================
 # Large components and Local Data
 # =====================
@@ -79,6 +87,7 @@ Genie-TTS-master/
 Core/assets/kokoro/*.onnx
 Core/assets/kokoro/*.bin
 Core/assets/kokoro/*.safetensors
+Tuning/LLaMa_Factory/exports/
 
 # Local memory databases
 Core/data/memory.db
@@ -91,8 +100,8 @@ Core/itchat.pkl
 # Model and Data
 Model/
 Data/
+Tuning/LLaMa_Factory/datasets
 
 # Others
 ToDo.md
 Core/instructions/
-instructions/
