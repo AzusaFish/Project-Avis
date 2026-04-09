@@ -363,7 +363,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="YouTube Neuro/Vedal 物理层说话人分离")
     parser.add_argument("--video-url", default=DEFAULT_VIDEO_URL)
     parser.add_argument("--audio-file", default=DEFAULT_AUDIO_FILE)
-    parser.add_argument("--hf-token", default="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")
+    parser.add_argument("--hf-token", default="")
     parser.add_argument("--num-speakers", type=int, default=2)
     parser.add_argument("--max-audio-seconds", type=float, default=0.0)
     parser.add_argument("--max-events", type=int, default=0)
