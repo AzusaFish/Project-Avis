@@ -27,7 +27,7 @@ class UpdateMemoryReq(BaseModel):
 class ClearMemoryReq(BaseModel):
     # 清空记忆请求体：可选只清理某个 role。
     """ClearMemoryReq: main class container for related behavior in this module."""
-    role: str | None = Field(default=None, pattern="^(user|assistant)?$")
+    role: str | None = Field(default=None, pattern="^(user|assistant|system|tool)?$")
 
 
 def _get_sqlite(request: Request) -> SQLiteStore:
@@ -44,14 +44,30 @@ async def list_memory(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    role: str | None = Query(default=None, pattern="^(user|assistant)$"),
+    role: str | None = Query(default=None, pattern="^(user|assistant|system|tool)$"),
     q: str | None = Query(default=None, max_length=200),
+    min_importance: float | None = Query(default=None, ge=0.0),
+    processed_flag: int | None = Query(default=None, ge=0, le=1),
+    sort_by: str = Query(default="time", pattern="^(time|importance)$"),
 ) -> dict[str, object]:
     # 分页列出记忆；支持 role 过滤和关键字检索。
     """Public API `list_memory` used by other modules or route handlers."""
     sqlite = _get_sqlite(request)
-    rows = await sqlite.list_dialogue(limit=limit, offset=offset, role=role, keyword=q)
-    total = await sqlite.count_dialogue(role=role, keyword=q)
+    rows = await sqlite.list_dialogue(
+        limit=limit,
+        offset=offset,
+        role=role,
+        keyword=q,
+        min_importance=min_importance,
+        processed_flag=processed_flag,
+        sort_by=sort_by,
+    )
+    total = await sqlite.count_dialogue(
+        role=role,
+        keyword=q,
+        min_importance=min_importance,
+        processed_flag=processed_flag,
+    )
     return {"total": total, "limit": limit, "offset": offset, "items": rows}
 
 

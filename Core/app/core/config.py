@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     stt_provider: str = Field(default="http", alias="STT_PROVIDER")
     stt_control_ws_url: str = Field(default="ws://127.0.0.1:8011", alias="STT_CONTROL_WS_URL")
     stt_data_ws_url: str = Field(default="ws://127.0.0.1:8012", alias="STT_DATA_WS_URL")
+    stt_audio_flush_gap_sec: float = Field(default=0.18, alias="STT_AUDIO_FLUSH_GAP_SEC")
+    stt_audio_max_buffer_sec: float = Field(default=2.2, alias="STT_AUDIO_MAX_BUFFER_SEC")
+    stt_transcribe_min_timeout_sec: float = Field(default=1.4, alias="STT_TRANSCRIBE_MIN_TIMEOUT_SEC")
+    stt_transcribe_max_timeout_sec: float = Field(default=6.0, alias="STT_TRANSCRIBE_MAX_TIMEOUT_SEC")
+    stt_silence_rms_threshold: float = Field(default=0.003, alias="STT_SILENCE_RMS_THRESHOLD")
+    stt_min_audio_sec: float = Field(default=0.2, alias="STT_MIN_AUDIO_SEC")
+    stt_adaptive_noise_multiplier: float = Field(default=2.0, alias="STT_ADAPTIVE_NOISE_MULTIPLIER")
+    stt_force_probe_after_skips: int = Field(default=8, alias="STT_FORCE_PROBE_AFTER_SKIPS")
     ocr_base_url: str = Field(default="http://127.0.0.1:9001", alias="OCR_BASE_URL")
     vision_base_url: str = Field(default="http://127.0.0.1:9002", alias="VISION_BASE_URL")
     screenshot_max_edge: int = Field(default=768, alias="SCREENSHOT_MAX_EDGE")
@@ -171,6 +179,39 @@ class Settings(BaseSettings):
     memory_reflect_max_scan: int = Field(default=260, alias="MEMORY_REFLECT_MAX_SCAN")
     memory_reflect_max_notes: int = Field(default=12, alias="MEMORY_REFLECT_MAX_NOTES")
     memory_recall_top_k: int = Field(default=4, alias="MEMORY_RECALL_TOP_K")
+
+    # ===== L1：短期记忆窗口管理 =====
+    memory_context_recent_window: int = Field(default=18, alias="MEMORY_CONTEXT_RECENT_WINDOW")
+    memory_context_pinned_limit: int = Field(default=8, alias="MEMORY_CONTEXT_PINNED_LIMIT")
+    memory_pin_importance_threshold: float = Field(default=0.9, alias="MEMORY_PIN_IMPORTANCE_THRESHOLD")
+
+    # ===== L2：情绪衰减与混合检索 =====
+    memory_decay_lambda_base: float = Field(default=0.035, alias="MEMORY_DECAY_LAMBDA_BASE")
+    memory_decay_negative_lambda_multiplier: float = Field(
+        default=0.45,
+        alias="MEMORY_DECAY_NEGATIVE_LAMBDA_MULTIPLIER",
+    )
+    memory_decay_negative_emotion_threshold: float = Field(
+        default=0.7,
+        alias="MEMORY_DECAY_NEGATIVE_EMOTION_THRESHOLD",
+    )
+    memory_decay_positive_lambda_multiplier: float = Field(
+        default=0.72,
+        alias="MEMORY_DECAY_POSITIVE_LAMBDA_MULTIPLIER",
+    )
+    memory_decay_positive_emotion_threshold: float = Field(
+        default=0.6,
+        alias="MEMORY_DECAY_POSITIVE_EMOTION_THRESHOLD",
+    )
+    memory_llm_scoring_enabled: bool = Field(default=True, alias="MEMORY_LLM_SCORING_ENABLED")
+    memory_llm_score_trigger_count: int = Field(default=24, alias="MEMORY_LLM_SCORE_TRIGGER_COUNT")
+    memory_llm_score_batch_size: int = Field(default=24, alias="MEMORY_LLM_SCORE_BATCH_SIZE")
+    memory_llm_score_max_text: int = Field(default=360, alias="MEMORY_LLM_SCORE_MAX_TEXT")
+    memory_hybrid_semantic_weight: float = Field(default=0.55, alias="MEMORY_HYBRID_SEMANTIC_WEIGHT")
+    memory_hybrid_recency_weight: float = Field(default=0.2, alias="MEMORY_HYBRID_RECENCY_WEIGHT")
+    memory_hybrid_importance_weight: float = Field(default=0.25, alias="MEMORY_HYBRID_IMPORTANCE_WEIGHT")
+    memory_hybrid_recency_lambda: float = Field(default=0.025, alias="MEMORY_HYBRID_RECENCY_LAMBDA")
+    memory_hybrid_semantic_pool: int = Field(default=16, alias="MEMORY_HYBRID_SEMANTIC_POOL")
 
     @model_validator(mode="after")
     def expand_path_like_fields(self) -> "Settings":

@@ -33,20 +33,13 @@ LLM_DEBUG_TO_FRONTEND: true
 
 # GGUF / llama.cpp(OpenAI-compatible server)
 GGUF_BASE_URL: http://127.0.0.1:8081/v1
-# GGUF_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
-# GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
-# GGUF_QWEN_MODEL: Avis_ver1.gguf
-# GGUF_QWEN_MODEL_PATH: ./Model/Avis_ver1.gguf
-# GGUF_INTERNVL_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
-# GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B
-# GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\mmproj-OpenGVLab_InternVL3_5-14B-f16.gguf
-GGUF_MODEL: neuro-internvl35-14b.Q4_K_M.gguf
-GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1
+GGUF_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
+GGUF_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
 GGUF_QWEN_MODEL: Avis_ver1.gguf
 GGUF_QWEN_MODEL_PATH: ./Model/Avis_ver1.gguf
-GGUF_INTERNVL_MODEL: neuro-internvl35-14b.Q4_K_M.gguf
-GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1
-GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Tuned1\mmproj-neuro-internvl35-14b.F16.gguf
+GGUF_INTERNVL_MODEL: OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
+GGUF_INTERNVL_MODEL_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf
+GGUF_MMPROJ_PATH: D:\AzusaFish\Codes\Development\Project-Avis\Model\Base\InternVL14B\mmproj-OpenGVLab_InternVL3_5-14B-f16.gguf
 GGUF_THREADS: 10
 GGUF_N_GPU_LAYERS: 99
 GGUF_CTX: 8192
@@ -83,6 +76,14 @@ STT_BASE_URL: http://127.0.0.1:9000
 STT_PROVIDER: http
 STT_CONTROL_WS_URL: ws://127.0.0.1:8011
 STT_DATA_WS_URL: ws://127.0.0.1:8012
+STT_AUDIO_FLUSH_GAP_SEC: 0.08
+STT_AUDIO_MAX_BUFFER_SEC: 0.9
+STT_TRANSCRIBE_MIN_TIMEOUT_SEC: 0.8
+STT_TRANSCRIBE_MAX_TIMEOUT_SEC: 2.8
+STT_SILENCE_RMS_THRESHOLD: 0.0012
+STT_MIN_AUDIO_SEC: 0.2
+STT_ADAPTIVE_NOISE_MULTIPLIER: 2.0
+STT_FORCE_PROBE_AFTER_SKIPS: 8
 OCR_BASE_URL: http://127.0.0.1:9001
 VISION_BASE_URL: http://127.0.0.1:9002
 SCREENSHOT_MAX_EDGE: 768
@@ -139,4 +140,9 @@ MEMORY_RECALL_TOP_K: 4
 # STT bridge runtime
 STT_BRIDGE_HOST: 127.0.0.1
 STT_BRIDGE_PORT: 9000
+STT_BRIDGE_CONTROL_TIMEOUT_SEC: 0.2
+STT_BRIDGE_REALTIME_IDLE_RETURN_SEC: 0.22
+STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC: 2.0
+STT_BRIDGE_CLEAR_BEFORE_FEED: false
+STT_BRIDGE_STOP_AFTER_FEED: false
 

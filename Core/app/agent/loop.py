@@ -10,6 +10,7 @@ Beginner note:
 
 from __future__ import annotations
 
+import audioop
 import asyncio
 import base64
 import json
@@ -17,6 +18,7 @@ import logging
 import mimetypes
 import re
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 
 from app.agent.context_manager import ContextManager, rough_token_count
@@ -71,13 +73,26 @@ class AgentLoop:
         self._system_prompt = build_system_prompt()
         self._audio_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=64)
         self._audio_worker_task: asyncio.Task | None = None
-        self._stt_flush_gap_sec = 0.45
-        self._stt_max_buffer_sec = 8.0
+        self._stt_flush_gap_sec = max(0.03, float(getattr(settings, "stt_audio_flush_gap_sec", 0.08)))
+        self._stt_max_buffer_sec = max(0.12, float(getattr(settings, "stt_audio_max_buffer_sec", 0.9)))
+        self._stt_silence_rms_threshold = max(
+            0.0,
+            float(getattr(settings, "stt_silence_rms_threshold", 0.003)),
+        )
+        self._stt_min_audio_sec = max(0.05, float(getattr(settings, "stt_min_audio_sec", 0.2)))
+        self._stt_noise_floor_ema = 0.0
+        self._stt_adaptive_multiplier = max(1.0, float(getattr(settings, "stt_adaptive_noise_multiplier", 2.0)))
+        self._stt_force_probe_after_skips = max(1, int(getattr(settings, "stt_force_probe_after_skips", 8)))
+        self._stt_skipped_by_gate = 0
+        self._last_stt_text = ""
         self._kv_summary = ""
         self._kv_state_loaded = False
         self._turns_since_kv_compress = max(0, int(settings.kv_compress_min_turns))
         self._agent_state = AgentState.IDLE
         self._think_chain_count = 0
+        self._llm_debug_seq = 0
+        self._llm_debug_last_request: dict[str, object] = {}
+        self._llm_debug_last_response: dict[str, object] = {}
         # `_running` 相当于主循环停止标志位。
 
     async def _set_agent_state(self, state: AgentState) -> None:
@@ -171,7 +186,40 @@ class AgentLoop:
 
                 merged_pcm = b"".join(merged_parts)
                 buffered_sec = len(merged_pcm) / (2 * sample_rate)
-                timeout_sec = max(6.0, min(18.0, buffered_sec * 2.0 + 2.0))
+                if buffered_sec < self._stt_min_audio_sec:
+                    continue
+
+                try:
+                    rms_norm = float(audioop.rms(merged_pcm, 2)) / 32768.0
+                except Exception:
+                    rms_norm = 0.0
+
+                if self._stt_noise_floor_ema <= 0.0:
+                    self._stt_noise_floor_ema = rms_norm
+                dynamic_threshold = max(
+                    self._stt_silence_rms_threshold,
+                    self._stt_noise_floor_ema * self._stt_adaptive_multiplier,
+                )
+
+                # 只在低能量段更新噪声底，避免说话期间把门限抬高。
+                if rms_norm < dynamic_threshold * 1.2:
+                    self._stt_noise_floor_ema = self._stt_noise_floor_ema * 0.92 + rms_norm * 0.08
+
+                if rms_norm < dynamic_threshold:
+                    self._stt_skipped_by_gate += 1
+                    # 连续跳过太多批次时做一次探测，防止低音量用户被永久门控。
+                    if self._stt_skipped_by_gate < self._stt_force_probe_after_skips:
+                        continue
+                    self._stt_skipped_by_gate = 0
+                else:
+                    self._stt_skipped_by_gate = 0
+
+                stt_timeout_min = max(0.3, float(getattr(settings, "stt_transcribe_min_timeout_sec", 0.8)))
+                stt_timeout_max = max(
+                    stt_timeout_min,
+                    float(getattr(settings, "stt_transcribe_max_timeout_sec", 2.8)),
+                )
+                timeout_sec = max(stt_timeout_min, min(stt_timeout_max, buffered_sec * 0.9 + 0.35))
                 merged_b64 = base64.b64encode(merged_pcm).decode("ascii")
                 text = (
                     await self.stt.transcribe_chunk(
@@ -181,6 +229,10 @@ class AgentLoop:
                     )
                 ).strip()
                 if text:
+                    # 简单去重：避免相同片段在短时间重复灌入对话流。
+                    if text == self._last_stt_text:
+                        continue
+                    self._last_stt_text = text
                     mark_activity()
                     await self.bus.publish(
                         Event(
@@ -330,6 +382,20 @@ class AgentLoop:
 
     async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, object]], raw_output: str = "") -> None:
         """Internal helper `_emit_llm_debug` used by this module implementation."""
+        self._llm_debug_seq += 1
+        entry = {
+            "seq": self._llm_debug_seq,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "stage": stage,
+            "messages": messages,
+            "prompt_text": self._messages_to_prompt_text(messages),
+            "raw_output": raw_output,
+        }
+        if stage == "request":
+            self._llm_debug_last_request = entry
+        elif stage == "response":
+            self._llm_debug_last_response = entry
+
         if not settings.llm_debug_to_frontend:
             return
         await self.frontend.broadcast(
@@ -339,14 +405,17 @@ class AgentLoop:
                 "action": "llm_debug",
                 "code": 0,
                 "message": "",
-                "data": {
-                    "stage": stage,
-                    "messages": messages,
-                    "prompt_text": self._messages_to_prompt_text(messages),
-                    "raw_output": raw_output,
-                },
+                "data": entry,
             }
         )
+
+    def get_llm_debug_snapshot(self) -> dict[str, object]:
+        """Export latest full LLM input/output payloads for debug API."""
+        return {
+            "last_request": dict(self._llm_debug_last_request),
+            "last_response": dict(self._llm_debug_last_response),
+            "seq": int(self._llm_debug_seq),
+        }
 
     @staticmethod
     def _extract_partial_speak_text(raw: str) -> str | None:
@@ -598,9 +667,12 @@ class AgentLoop:
                 if screenshot_path:
                     try:
                         vision_image_data_url = self._image_file_to_data_url(screenshot_path)
-                        await self.memory.append_dialogue(
-                            "system",
-                            f"[TOOL_RESULT] screenshot_path={screenshot_path}",
+                        await self.memory.append_short_term_memory(
+                            role="tool",
+                            content=f"[TOOL_RESULT] screenshot_path={screenshot_path}",
+                            source_event="desktop_screenshot",
+                            screenshot_path=screenshot_path,
+                            importance_score=1.1,
                         )
                         user_text = (
                             "You now have a fresh desktop screenshot. "
@@ -608,26 +680,53 @@ class AgentLoop:
                             "Interpret the image directly yourself and reply concisely in style."
                         )
                     except Exception as exc:
-                        await self.memory.append_dialogue(
-                            "system",
-                            f"[TOOL_RESULT] screenshot unusable: {exc}",
+                        await self.memory.append_short_term_memory(
+                            role="tool",
+                            content=f"[TOOL_RESULT] screenshot unusable: {exc}",
+                            source_event="desktop_screenshot",
+                            importance_score=0.6,
                         )
                         user_text = "Use the latest tool result and continue the conversation naturally."
                 else:
-                    await self.memory.append_dialogue("system", f"[TOOL_RESULT] {raw_user_text}")
+                    await self.memory.append_short_term_memory(
+                        role="tool",
+                        content=f"[TOOL_RESULT] {raw_user_text}",
+                        source_event="tool_result",
+                        importance_score=0.75,
+                    )
                     user_text = "Use the latest tool result and continue the conversation naturally."
             else:
-                await self.memory.append_dialogue("system", f"[TOOL_RESULT] {raw_user_text}")
+                await self.memory.append_short_term_memory(
+                    role="tool",
+                    content=f"[TOOL_RESULT] {raw_user_text}",
+                    source_event="tool_result",
+                    importance_score=0.75,
+                )
                 user_text = "Use the latest tool result and continue the conversation naturally."
         else:
             user_text = raw_user_text
             if system_inject:
-                await self.memory.append_dialogue("system", user_text)
+                await self.memory.append_short_term_memory(
+                    role="system",
+                    content=user_text,
+                    source_event=str(event.event_type.value),
+                    importance_score=0.45,
+                )
             elif silent_input:
-                await self.memory.append_dialogue("system", f"[SILENT_INPUT] {user_text}")
+                await self.memory.append_short_term_memory(
+                    role="system",
+                    content=f"[SILENT_INPUT] {user_text}",
+                    source_event="silent_input",
+                    importance_score=0.25,
+                )
             else:
                 mark_activity(kind="user_text", text=user_text)
-                await self.memory.append_dialogue("user", user_text)
+                await self.memory.append_short_term_memory(
+                    role="user",
+                    content=user_text,
+                    source_event=str(event.event_type.value),
+                    importance_score=0.7,
+                )
                 await self.frontend.broadcast(
                     {
                         "protocol": "Live2DProtocol",
@@ -743,7 +842,12 @@ class AgentLoop:
             text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
             if text:
                 mark_activity(kind="assistant_response")
-                await self.memory.append_dialogue("assistant", text)
+                await self.memory.append_short_term_memory(
+                    role="assistant",
+                    content=text,
+                    source_event="assistant_think",
+                    importance_score=0.7,
+                )
 
                 if settings.llm_stream:
                     if stream_preview_text != text:
@@ -823,7 +927,12 @@ class AgentLoop:
             self._think_chain_count = 0
             text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
             if text:
-                await self.memory.append_dialogue("assistant", text)
+                await self.memory.append_short_term_memory(
+                    role="assistant",
+                    content=text,
+                    source_event="assistant_ask",
+                    importance_score=0.7,
+                )
                 if settings.llm_stream:
                     if stream_preview_text != text:
                         await self.frontend.broadcast(
@@ -871,7 +980,12 @@ class AgentLoop:
             self._think_chain_count = 0
             text = self._clamp_reply_text(plan.action.content, settings.assistant_max_chars)
             mark_activity(kind="assistant_response")
-            await self.memory.append_dialogue("assistant", text)
+            await self.memory.append_short_term_memory(
+                role="assistant",
+                content=text,
+                source_event="assistant_speak",
+                importance_score=0.7,
+            )
             if settings.llm_stream:
                 if stream_preview_text != text:
                     await self.frontend.broadcast(

@@ -11,6 +11,7 @@ Beginner note:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.core.config import settings
 
@@ -32,7 +33,6 @@ class ContextSlice:
 
     def render_messages(self) -> list[dict[str, str]]:
         # 按模型可直接消费的 chat messages 结构输出上下文切片。
-        # 注意：这里把历史行统一放到 user role，是当前实现的简化策略。
         """Public API `render_messages` used by other modules or route handlers."""
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
         if self.persona_examples:
@@ -74,11 +74,10 @@ class ContextManager:
         self,
         system_prompt: str,
         persona_examples: list[str],
-        history: list[dict[str, str]],
+        history: list[dict[str, Any]],
         latest_input: str,
     ) -> ContextSlice:
-        # 在预算限制下选择“系统提示 + 人格示例 + 历史 + 最新输入”的子集。
-        # 为回复和工具调用预留 token，剩余预算用于上下文。
+        # 在预算限制下选择“recent_window + pinned_items”的双通道上下文。
         """Public API `build_slice` used by other modules or route handlers."""
         budget = self.max_context - self.reserve_response - self.reserve_tools
         if budget <= 0:
@@ -94,16 +93,71 @@ class ContextManager:
             selected_examples.append(ex)
             used += t
 
-        selected_history: list[dict[str, str]] = []
-        for item in reversed(history):
-            line = str(item.get("content", ""))
-            t = rough_token_count(line)
+        recent_window = max(1, int(getattr(settings, "memory_context_recent_window", 16)))
+        pinned_limit = max(0, int(getattr(settings, "memory_context_pinned_limit", 8)))
+        pin_threshold = float(getattr(settings, "memory_pin_importance_threshold", 0.9))
+
+        normalized_history: list[dict[str, object]] = []
+        for idx, item in enumerate(history):
+            line = str(item.get("content", "") or "")
+            if not line:
+                continue
+            role = str(item.get("role", "user")).strip().lower()
+            if role not in {"user", "assistant", "system", "tool"}:
+                role = "user"
+            t = int(item.get("token_estimate", 0) or 0)
+            if t <= 0:
+                t = rough_token_count(line)
+            normalized_history.append(
+                {
+                    "idx": idx,
+                    "role": role,
+                    "content": line,
+                    "importance_score": float(item.get("importance_score", 0.0) or 0.0),
+                    "token_estimate": t,
+                }
+            )
+
+        selected_idx: set[int] = set()
+
+        # 通道 1：最近窗口，按新到旧优先保留。
+        recent_items = normalized_history[-recent_window:]
+        for item in reversed(recent_items):
+            t = int(item["token_estimate"])
             if used + t > budget:
-                break
-            selected_history.append(item)
+                continue
+            selected_idx.add(int(item["idx"]))
             used += t
 
-        selected_history.reverse()
+        # 通道 2：高重要钉住项（限定数量，避免挤爆预算）。
+        pinned_pool = [
+            item
+            for item in normalized_history[:-recent_window]
+            if float(item["importance_score"]) >= pin_threshold
+        ]
+        pinned_pool.sort(key=lambda x: (float(x["importance_score"]), int(x["idx"])), reverse=True)
+        for item in pinned_pool[:pinned_limit]:
+            idx = int(item["idx"])
+            if idx in selected_idx:
+                continue
+            t = int(item["token_estimate"])
+            if used + t > budget:
+                continue
+            selected_idx.add(idx)
+            used += t
+
+        selected_history: list[dict[str, str]] = []
+        for item in normalized_history:
+            idx = int(item["idx"])
+            if idx not in selected_idx:
+                continue
+            selected_history.append(
+                {
+                    "role": str(item["role"]),
+                    "content": str(item["content"]),
+                }
+            )
+
         return ContextSlice(
             system_prompt=system_prompt,
             persona_examples=selected_examples,

@@ -59,7 +59,7 @@ class UpdateMemoryReq(BaseModel):
 class ClearMemoryReq(BaseModel):
     # Optional filter when clearing memory records.
     """ClearMemoryReq: main class container for related behavior in this module."""
-    role: str | None = Field(default=None, pattern="^(user|assistant)?$")
+    role: str | None = Field(default=None, pattern="^(user|assistant|system|tool)?$")
 
 
 class UpdateConfigReq(BaseModel):
@@ -197,6 +197,22 @@ def _get_bus(request: Request):
     return bus
 
 
+def _get_agent(request: Request):
+    """Internal helper `_get_agent` used by this module implementation."""
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        raise HTTPException(status_code=503, detail="agent is not ready")
+    return agent
+
+
+def _get_reflector(request: Request):
+    """Internal helper `_get_reflector` used by this module implementation."""
+    reflector = getattr(request.app.state, "reflector", None)
+    if reflector is None:
+        raise HTTPException(status_code=503, detail="memory reflector is not ready")
+    return reflector
+
+
 @router.get("/health")
 async def health() -> dict:
     # Process-level health indicator.
@@ -307,14 +323,30 @@ async def list_memory(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    role: str | None = Query(default=None, pattern="^(user|assistant)$"),
+    role: str | None = Query(default=None, pattern="^(user|assistant|system|tool)$"),
     q: str | None = Query(default=None, max_length=200),
+    min_importance: float | None = Query(default=None, ge=0.0),
+    processed_flag: int | None = Query(default=None, ge=0, le=1),
+    sort_by: str = Query(default="time", pattern="^(time|importance)$"),
 ) -> dict:
     # Paginated dialogue query with optional role/keyword filters.
     """Public API `list_memory` used by other modules or route handlers."""
     sqlite = _get_sqlite(request)
-    rows = await sqlite.list_dialogue(limit=limit, offset=offset, role=role, keyword=q)
-    total = await sqlite.count_dialogue(role=role, keyword=q)
+    rows = await sqlite.list_dialogue(
+        limit=limit,
+        offset=offset,
+        role=role,
+        keyword=q,
+        min_importance=min_importance,
+        processed_flag=processed_flag,
+        sort_by=sort_by,
+    )
+    total = await sqlite.count_dialogue(
+        role=role,
+        keyword=q,
+        min_importance=min_importance,
+        processed_flag=processed_flag,
+    )
     return ok({"total": total, "limit": limit, "offset": offset, "items": rows})
 
 
@@ -373,6 +405,8 @@ async def debug_snapshot(request: Request) -> dict:
     """Public API `debug_snapshot` used by other modules or route handlers."""
     bus = _get_bus(request)
     sqlite = _get_sqlite(request)
+    agent = _get_agent(request)
+    reflector = _get_reflector(request)
     frontend = getattr(request.app.state, "frontend", None)
 
     provider = settings.llm_provider.lower().strip()
@@ -391,7 +425,13 @@ async def debug_snapshot(request: Request) -> dict:
     role_counts = {
         "user": await sqlite.count_dialogue(role="user"),
         "assistant": await sqlite.count_dialogue(role="assistant"),
+        "system": await sqlite.count_dialogue(role="system"),
+        "tool": await sqlite.count_dialogue(role="tool"),
     }
+    pending_scoring = await sqlite.count_short_term_by_processed(processed_flag=0)
+    processed_scoring = await sqlite.count_short_term_by_processed(processed_flag=1)
+    llm_io = agent.get_llm_debug_snapshot() if hasattr(agent, "get_llm_debug_snapshot") else {}
+    score_debug = reflector.get_score_debug_state() if hasattr(reflector, "get_score_debug_state") else {}
 
     ws_clients = 0
     if frontend is not None and hasattr(frontend, "_connections"):
@@ -409,6 +449,87 @@ async def debug_snapshot(request: Request) -> dict:
             "llm_model": settings.gguf_model if provider in {"gguf", "llama_cpp"} else settings.llm_model,
             "tts_provider": settings.tts_provider,
             "memory_count": role_counts,
+            "memory_scoring": {
+                "enabled": bool(getattr(settings, "memory_llm_scoring_enabled", True)),
+                "pending": pending_scoring,
+                "processed": processed_scoring,
+                "trigger_count": int(getattr(settings, "memory_llm_score_trigger_count", 24)),
+                "batch_size": int(getattr(settings, "memory_llm_score_batch_size", 24)),
+                "worker": score_debug,
+            },
+            "llm_io_summary": {
+                "seq": int(llm_io.get("seq", 0) or 0),
+                "last_request_ts": (llm_io.get("last_request") or {}).get("ts", ""),
+                "last_response_ts": (llm_io.get("last_response") or {}).get("ts", ""),
+                "has_request": bool((llm_io.get("last_request") or {}).get("messages")),
+                "has_response": bool((llm_io.get("last_response") or {}).get("raw_output")),
+            },
             "config_path": str(_project_config_path()),
+        }
+    )
+
+
+@router.get("/debug/llm-io")
+async def debug_llm_io(request: Request) -> dict:
+    # Return latest full LLM request/response payloads for deep debugging.
+    """Public API `debug_llm_io` used by other modules or route handlers."""
+    agent = _get_agent(request)
+    payload = agent.get_llm_debug_snapshot() if hasattr(agent, "get_llm_debug_snapshot") else {}
+    return ok(
+        {
+            "provider": settings.llm_provider.lower().strip(),
+            "model": settings.gguf_model
+            if settings.llm_provider.lower().strip() in {"gguf", "llama_cpp"}
+            else settings.llm_model,
+            "llm_debug_to_frontend": bool(settings.llm_debug_to_frontend),
+            "payload": payload,
+        }
+    )
+
+
+@router.get("/debug/memory-mechanism")
+async def debug_memory_mechanism(request: Request) -> dict:
+    # Return memory pipeline internals: scoring threshold, pending batches and recent rows.
+    """Public API `debug_memory_mechanism` used by other modules or route handlers."""
+    sqlite = _get_sqlite(request)
+    reflector = _get_reflector(request)
+
+    pending = await sqlite.count_short_term_by_processed(processed_flag=0)
+    processed = await sqlite.count_short_term_by_processed(processed_flag=1)
+    pending_items = await sqlite.list_dialogue(limit=20, offset=0, processed_flag=0, sort_by="time")
+    processed_items = await sqlite.list_dialogue(limit=20, offset=0, processed_flag=1, sort_by="time")
+
+    return ok(
+        {
+            "llm_scoring": {
+                "enabled": bool(getattr(settings, "memory_llm_scoring_enabled", True)),
+                "trigger_count": int(getattr(settings, "memory_llm_score_trigger_count", 24)),
+                "batch_size": int(getattr(settings, "memory_llm_score_batch_size", 24)),
+                "max_text": int(getattr(settings, "memory_llm_score_max_text", 360)),
+                "pending_count": pending,
+                "processed_count": processed,
+                "worker": reflector.get_score_debug_state()
+                if hasattr(reflector, "get_score_debug_state")
+                else {},
+            },
+            "decay_policy": {
+                "base_lambda": float(settings.memory_decay_lambda_base),
+                "negative": {
+                    "multiplier": float(settings.memory_decay_negative_lambda_multiplier),
+                    "threshold": float(settings.memory_decay_negative_emotion_threshold),
+                },
+                "positive": {
+                    "multiplier": float(settings.memory_decay_positive_lambda_multiplier),
+                    "threshold": float(settings.memory_decay_positive_emotion_threshold),
+                },
+            },
+            "hybrid_ranking": {
+                "semantic_weight": float(settings.memory_hybrid_semantic_weight),
+                "recency_weight": float(settings.memory_hybrid_recency_weight),
+                "importance_weight": float(settings.memory_hybrid_importance_weight),
+                "semantic_pool": int(settings.memory_hybrid_semantic_pool),
+            },
+            "recent_pending": pending_items,
+            "recent_processed": processed_items,
         }
     )

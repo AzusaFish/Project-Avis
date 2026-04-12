@@ -8,6 +8,8 @@ echo [INFO] start at %DATE% %TIME% > "%LOG_FILE%"
 set "DRY_RUN=0"
 set "HOLD_ON_ERROR=1"
 set "EXPORT_ONLY=0"
+set "DEPLOY_DIR_OVERRIDE="
+set "OUTPUT_STEM_OVERRIDE="
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -23,6 +25,26 @@ if /I "%~1"=="--no-pause" (
 )
 if /I "%~1"=="--export-only" (
   set "EXPORT_ONLY=1"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--deploy-dir" (
+  if "%~2"=="" (
+    echo [ERROR] --deploy-dir requires a path.
+    exit /b 1
+  )
+  set "DEPLOY_DIR_OVERRIDE=%~2"
+  shift
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--output-stem" (
+  if "%~2"=="" (
+    echo [ERROR] --output-stem requires a value.
+    exit /b 1
+  )
+  set "OUTPUT_STEM_OVERRIDE=%~2"
+  shift
   shift
   goto parse_args
 )
@@ -44,13 +66,16 @@ set "SFT_OUT=outputs/neuro_sft_lora_internvl35_14b"
 set "DPO_OUT=outputs/neuro_dpo_lora_internvl35_14b"
 set "EXPORTS_DIR=exports/neuro_dpo"
 set "OUTPUT_STEM=neuro-internvl35-14b"
+if defined OUTPUT_STEM_OVERRIDE set "OUTPUT_STEM=%OUTPUT_STEM_OVERRIDE%"
 set "LLAMA_CPP_DIR=%~dp0tools\llama.cpp"
 set "EXPORT_YAML=%~dp0%EXPORTS_DIR%\export_lf.generated.yaml"
 set "MERGED_DIR=%~dp0%EXPORTS_DIR%\merged_hf"
 set "MERGED_DIR_POSIX=%MERGED_DIR:\=/%"
 set "GGUF_DIR=%~dp0%EXPORTS_DIR%\gguf"
 for %%I in ("%~dp0..\..") do set "PROJECT_ROOT=%%~fI"
-set "DEPLOY_GGUF_DIR=%PROJECT_ROOT%\Model\Tuned1"
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "RUN_STAMP=%%I"
+set "DEPLOY_GGUF_DIR=%PROJECT_ROOT%\Model\Tuned_exports\%OUTPUT_STEM%_%RUN_STAMP%"
+if defined DEPLOY_DIR_OVERRIDE set "DEPLOY_GGUF_DIR=%DEPLOY_DIR_OVERRIDE%"
 
 set "HF_CACHE_ROOT=%~dp0.hf"
 set "HF_HOME=%HF_CACHE_ROOT%"
@@ -75,6 +100,8 @@ echo [INFO] vision workers: %VISION_DOWNLOAD_WORKERS%
 echo [INFO] dpo limit: %DPO_LIMIT%
 echo [INFO] lf env: %LF_ENV%
 echo [INFO] export only: %EXPORT_ONLY%
+if defined OUTPUT_STEM_OVERRIDE echo [INFO] output stem override: %OUTPUT_STEM_OVERRIDE%
+if defined DEPLOY_DIR_OVERRIDE echo [INFO] deploy dir override: %DEPLOY_DIR_OVERRIDE%
 echo [INFO] hf cache root: %HF_CACHE_ROOT%
 echo [INFO] exports dir: %EXPORTS_DIR%
 echo [INFO] deploy gguf dir: %DEPLOY_GGUF_DIR%
@@ -88,6 +115,8 @@ echo [INFO] log file: %LOG_FILE%
 >> "%LOG_FILE%" echo [INFO] dpo_limit=%DPO_LIMIT%
 >> "%LOG_FILE%" echo [INFO] lf_env=%LF_ENV%
 >> "%LOG_FILE%" echo [INFO] export_only=%EXPORT_ONLY%
+>> "%LOG_FILE%" echo [INFO] output_stem=%OUTPUT_STEM%
+>> "%LOG_FILE%" echo [INFO] run_stamp=%RUN_STAMP%
 >> "%LOG_FILE%" echo [INFO] hf_cache_root=%HF_CACHE_ROOT%
 >> "%LOG_FILE%" echo [INFO] exports_dir=%EXPORTS_DIR%
 >> "%LOG_FILE%" echo [INFO] deploy_gguf_dir=%DEPLOY_GGUF_DIR%
@@ -102,7 +131,7 @@ if "%DRY_RUN%"=="1" (
   echo [DRY] generate %EXPORT_YAML%
   echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python -m llamafactory.cli export %EXPORT_YAML%
   echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\%OUTPUT_STEM%.F16.gguf" --outtype f16
-  echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\%OUTPUT_STEM%.F16.gguf" --outtype f16 --mmproj
+  echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\mmproj-%OUTPUT_STEM%.F16.gguf" --outtype f16 --mmproj
   echo [DRY] "%LLAMA_CPP_DIR%\build\bin\Release\llama-quantize.exe" "%GGUF_DIR%\%OUTPUT_STEM%.F16.gguf" "%GGUF_DIR%\%OUTPUT_STEM%.Q4_K_M.gguf" Q4_K_M
   echo [DRY] copy gguf to "%DEPLOY_GGUF_DIR%"
   exit /b 0
@@ -186,7 +215,7 @@ if not %ERRORLEVEL%==0 (
   call :fail "HF -> F16 GGUF conversion failed." %ERRORLEVEL%
 )
 
-call conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\%OUTPUT_STEM%.F16.gguf" --outtype f16 --mmproj
+call conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\mmproj-%OUTPUT_STEM%.F16.gguf" --outtype f16 --mmproj
 if not %ERRORLEVEL%==0 (
   call :fail "mmproj GGUF conversion failed." %ERRORLEVEL%
 )

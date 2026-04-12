@@ -39,9 +39,11 @@ const micEnabled = ref(false)
 const micSpeaking = ref(false) // 是否正在说话（用于 UI 指示）
 
 const MIC_SAMPLE_RATE = 16000
-const SILENCE_THRESHOLD = 0.008 // RMS 能量阈值（调低，避免普通麦克风过不了门限）
+const SILENCE_THRESHOLD = 0.0035 // 前端仅用于 UI/interrupt 的 RMS 阈值；更低以适配小音量麦克风
 const SILENCE_DURATION = 600    // 静默超时
-const MIC_STREAM_INTERVAL_MS = 120
+const MIC_STREAM_INTERVAL_MS = 80
+const MIC_INPUT_GAIN = 2.8      // 低音量补偿；最终发送前会再做 [-1,1] 裁剪
+const MIC_RMS_LOG_INTERVAL_MS = 2500
 
 let micStream: MediaStream | null = null
 let micAudioCtx: AudioContext | null = null
@@ -52,6 +54,7 @@ let silenceTimer: ReturnType<typeof setTimeout> | null = null
 let interruptSent = false
 let micFrameSeq = 0
 let lastMicSendTs = 0
+let lastMicRmsLogTs = 0
 
 let audioWs: WebSocket | null = null
 let ttsQueue: string[] = []
@@ -381,6 +384,17 @@ function sendMicChunk(samples: Float32Array) {
   audioWs.send(JSON.stringify(payload))
 }
 
+function applyMicGain(samples: Float32Array, gain: number): Float32Array {
+  const g = Number.isFinite(gain) ? Math.max(0.2, Math.min(8.0, gain)) : 1.0
+  if (Math.abs(g - 1.0) < 1e-6) return new Float32Array(samples)
+  const out = new Float32Array(samples.length)
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i] * g
+    out[i] = Math.max(-1, Math.min(1, v))
+  }
+  return out
+}
+
 async function startMic() {
   // 开启录音并启动 VAD（语音活动检测）逻辑。
   // 打开麦克风权限并创建 WebAudio 处理链。
@@ -445,14 +459,21 @@ async function startMic() {
 
   micAudioCtx = new AudioContext({ sampleRate: MIC_SAMPLE_RATE })
   micSource = micAudioCtx.createMediaStreamSource(micStream)
-  micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1)
+  micProcessor = micAudioCtx.createScriptProcessor(2048, 1, 1)
 
   micProcessor.onaudioprocess = (e) => {
     const data = e.inputBuffer.getChannelData(0)
+    const boosted = applyMicGain(data, MIC_INPUT_GAIN)
     // 计算 RMS 能量
     let sum = 0
-    for (let i = 0; i < data.length; i++) sum += data[i] * data[i]
+    for (let i = 0; i < boosted.length; i++) sum += boosted[i] * boosted[i]
     const rms = Math.sqrt(sum / data.length)
+
+    const now = Date.now()
+    if (now - lastMicRmsLogTs >= MIC_RMS_LOG_INTERVAL_MS) {
+      lastMicRmsLogTs = now
+      console.log(`[Mic] rms=${rms.toFixed(5)} threshold=${SILENCE_THRESHOLD} gain=${MIC_INPUT_GAIN}`)
+    }
 
     if (rms > SILENCE_THRESHOLD) {
       // 检测到语音
@@ -465,7 +486,6 @@ async function startMic() {
         stopTtsPlayback()
         audioWs.send(JSON.stringify({ type: 'interrupt' }))
       }
-      sendMicChunk(new Float32Array(data))
     } else if (hasSpeech && !silenceTimer) {
       if (!silenceTimer) {
         silenceTimer = setTimeout(() => {
@@ -476,6 +496,9 @@ async function startMic() {
         }, SILENCE_DURATION)
       }
     }
+
+    // 无论前端门限是否触发，都持续送流；最终由后端 STT 的 VAD 决定有效语音。
+    sendMicChunk(boosted)
   }
 
   micSource.connect(micProcessor)

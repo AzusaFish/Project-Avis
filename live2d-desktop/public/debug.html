@@ -12,9 +12,13 @@
     input, button, textarea { border-radius: 8px; border: 1px solid #334155; padding: 8px 10px; background: #0f172a; color: #e2e8f0; }
     button { cursor: pointer; background: #0ea5e9; border-color: #0ea5e9; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
     .card { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px; }
+    .card h3 { margin: 0 0 8px; font-size: 15px; }
+    .mono { font-family: Consolas, ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
     pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 0; }
     #status { color: #93c5fd; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #334155; font-size: 12px; margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -24,7 +28,15 @@
       <input id="baseUrl" value="http://127.0.0.1:8080" style="min-width: 280px" />
       <button id="refreshBtn">Refresh</button>
       <button id="autoBtn">Auto: Off</button>
+      <button id="wsBtn">LLM WS: Off</button>
       <span id="status"></span>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px;">
+      <span class="badge">LLM I/O</span>
+      <span class="badge">Memory Mechanism</span>
+      <span class="badge">Scoring Worker</span>
+      <span class="badge">Queue/Deps</span>
     </div>
 
     <div class="card" style="margin-bottom: 12px;">
@@ -38,6 +50,9 @@
       <div class="card"><h3>/health/deps</h3><pre id="deps"></pre></div>
       <div class="card"><h3>/api/v1/debug/snapshot</h3><pre id="snapshot"></pre></div>
       <div class="card"><h3>/api/v1/control/queue-size</h3><pre id="queue"></pre></div>
+      <div class="card"><h3>/api/v1/debug/memory-mechanism</h3><pre id="memoryMechanism"></pre></div>
+      <div class="card"><h3>/api/v1/debug/llm-io</h3><pre id="llmIo"></pre></div>
+      <div class="card" style="grid-column: 1 / -1;"><h3>Live WS llm_debug stream (full payload)</h3><pre id="llmLive" class="mono"></pre></div>
     </div>
   </div>
 
@@ -45,6 +60,8 @@
     const statusEl = document.getElementById('status');
     const getBase = () => (document.getElementById('baseUrl').value || 'http://127.0.0.1:8080').replace(/\/$/, '');
     let timer = null;
+    let ws = null;
+    const wsBuffer = [];
 
     function setStatus(msg) { statusEl.textContent = msg || ''; }
     function show(id, obj) { document.getElementById(id).textContent = JSON.stringify(obj, null, 2); }
@@ -57,17 +74,68 @@
 
     async function refreshAll() {
       setStatus('Loading...');
-      const [health, deps, snapshot, queue] = await Promise.all([
+      const [health, deps, snapshot, queue, memoryMechanism, llmIo] = await Promise.all([
         fetchJson('/health'),
         fetchJson('/health/deps'),
         fetchJson('/api/v1/debug/snapshot'),
         fetchJson('/api/v1/control/queue-size'),
+        fetchJson('/api/v1/debug/memory-mechanism'),
+        fetchJson('/api/v1/debug/llm-io'),
       ]);
       show('health', health);
       show('deps', deps);
       show('snapshot', snapshot);
       show('queue', queue);
+      show('memoryMechanism', memoryMechanism);
+      show('llmIo', llmIo);
       setStatus(`Updated at ${new Date().toLocaleTimeString()}`);
+    }
+
+    function baseToWsUrl() {
+      const base = getBase();
+      if (base.startsWith('https://')) return `wss://${base.slice('https://'.length)}/ws/live2d`;
+      if (base.startsWith('http://')) return `ws://${base.slice('http://'.length)}/ws/live2d`;
+      return `ws://${base}/ws/live2d`;
+    }
+
+    function renderWsBuffer() {
+      document.getElementById('llmLive').textContent = wsBuffer.join('\n\n----\n\n');
+    }
+
+    function toggleWs() {
+      const btn = document.getElementById('wsBtn');
+      if (ws) {
+        ws.close();
+        ws = null;
+        btn.textContent = 'LLM WS: Off';
+        setStatus('LLM websocket disconnected');
+        return;
+      }
+
+      const url = baseToWsUrl();
+      ws = new WebSocket(url, 'Live2DProtocol');
+      ws.onopen = () => {
+        btn.textContent = 'LLM WS: On';
+        setStatus('LLM websocket connected');
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const obj = JSON.parse(ev.data || '{}');
+          if (obj.action !== 'llm_debug') return;
+          wsBuffer.unshift(JSON.stringify(obj, null, 2));
+          while (wsBuffer.length > 10) wsBuffer.pop();
+          renderWsBuffer();
+        } catch (_) {
+          // ignore parse failures
+        }
+      };
+      ws.onerror = () => {
+        setStatus('LLM websocket error');
+      };
+      ws.onclose = () => {
+        ws = null;
+        btn.textContent = 'LLM WS: Off';
+      };
     }
 
     async function injectText() {
@@ -85,6 +153,7 @@
 
     document.getElementById('refreshBtn').addEventListener('click', () => refreshAll().catch(e => setStatus(String(e))));
     document.getElementById('injectBtn').addEventListener('click', () => injectText().catch(e => setStatus(String(e))));
+    document.getElementById('wsBtn').addEventListener('click', () => toggleWs());
     document.getElementById('autoBtn').addEventListener('click', () => {
       const btn = document.getElementById('autoBtn');
       if (timer) {

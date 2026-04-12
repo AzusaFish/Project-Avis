@@ -38,6 +38,15 @@ set "SECURE_RELAY_WINDOW_SEC=300"
 set "SECURE_RELAY_SIGN_HEADER=X-Relay-Signature"
 set "SECURE_RELAY_TS_HEADER=X-Relay-Timestamp"
 set "SECURE_RELAY_NONCE_HEADER=X-Relay-Nonce"
+set "STT_CONTROL_WS_URL=ws://127.0.0.1:8011"
+set "STT_DATA_WS_URL=ws://127.0.0.1:8012"
+set "STT_BRIDGE_HOST=127.0.0.1"
+set "STT_BRIDGE_PORT=9000"
+set "STT_BRIDGE_CONTROL_TIMEOUT_SEC=0.2"
+set "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC=0.22"
+set "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC=2.0"
+set "STT_BRIDGE_CLEAR_BEFORE_FEED=false"
+set "STT_BRIDGE_STOP_AFTER_FEED=false"
 
 call :load_config_defaults
 
@@ -144,6 +153,16 @@ if /I "%LLM_PROVIDER%"=="gguf" if /I "%LLM_MODEL_PROFILE%"=="internvl" if "%GGUF
 if /I "%LLM_PROVIDER%"=="gguf" if /I "%LLM_MODEL_PROFILE%"=="internvl" if not exist "%GGUF_MMPROJ_PATH%" (
   echo [ERROR] InternVL mmproj file not found: %GGUF_MMPROJ_PATH%
   exit /b 1
+)
+
+if /I "%LLM_PROVIDER%"=="gguf" if /I "%LLM_MODEL_PROFILE%"=="internvl" (
+  for %%I in ("%GGUF_MODEL_PATH%") do set "_GGUF_MODEL_SIZE=%%~zI"
+  if defined _GGUF_MODEL_SIZE if !_GGUF_MODEL_SIZE! LSS 2000000000 (
+    echo [ERROR] InternVL main GGUF is too small: %GGUF_MODEL_PATH% ^(!_GGUF_MODEL_SIZE! bytes^)
+    echo [HINT] This usually means a mmproj file was mistaken as the main model.
+    echo [HINT] For 14B Q4_K_M, expected size is usually several GB.
+    exit /b 1
+  )
 )
 
 if /I "%WECHAT_BRIDGE_PROVIDER%"=="secure_relay" (
@@ -398,7 +417,7 @@ echo [2/5] Preparing RealtimeSTT launcher...
   echo title RealtimeSTT
   echo cd /d "%STT_DIR%"
   echo set "CUDA_VISIBLE_DEVICES=-1"
-  echo "%UV_EXE%" --directory "%CORE_DIR%" run python -m RealtimeSTT_server.stt_server -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8
+  echo "%UV_EXE%" --directory "%CORE_DIR%" run python -m RealtimeSTT_server.stt_server -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
 
@@ -408,6 +427,15 @@ echo [3/5] Preparing STT bridge launcher...
   echo title STT Bridge
   echo cd /d "%CORE_DIR%"
   echo set "CUDA_VISIBLE_DEVICES=-1"
+  echo set "STT_CONTROL_WS_URL=%STT_CONTROL_WS_URL%"
+  echo set "STT_DATA_WS_URL=%STT_DATA_WS_URL%"
+  echo set "STT_BRIDGE_HOST=%STT_BRIDGE_HOST%"
+  echo set "STT_BRIDGE_PORT=%STT_BRIDGE_PORT%"
+  echo set "STT_BRIDGE_CONTROL_TIMEOUT_SEC=%STT_BRIDGE_CONTROL_TIMEOUT_SEC%"
+  echo set "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC=%STT_BRIDGE_REALTIME_IDLE_RETURN_SEC%"
+  echo set "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC=%STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC%"
+  echo set "STT_BRIDGE_CLEAR_BEFORE_FEED=%STT_BRIDGE_CLEAR_BEFORE_FEED%"
+  echo set "STT_BRIDGE_STOP_AFTER_FEED=%STT_BRIDGE_STOP_AFTER_FEED%"
   echo "%UV_EXE%" --directory "%CORE_DIR%" run python bridges\realtimestt_http_bridge.py
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
@@ -548,6 +576,15 @@ call :yaml_get "SECURE_RELAY_WINDOW_SEC" SECURE_RELAY_WINDOW_SEC
 call :yaml_get "SECURE_RELAY_SIGN_HEADER" SECURE_RELAY_SIGN_HEADER
 call :yaml_get "SECURE_RELAY_TS_HEADER" SECURE_RELAY_TS_HEADER
 call :yaml_get "SECURE_RELAY_NONCE_HEADER" SECURE_RELAY_NONCE_HEADER
+call :yaml_get "STT_CONTROL_WS_URL" STT_CONTROL_WS_URL
+call :yaml_get "STT_DATA_WS_URL" STT_DATA_WS_URL
+call :yaml_get "STT_BRIDGE_HOST" STT_BRIDGE_HOST
+call :yaml_get "STT_BRIDGE_PORT" STT_BRIDGE_PORT
+call :yaml_get "STT_BRIDGE_CONTROL_TIMEOUT_SEC" STT_BRIDGE_CONTROL_TIMEOUT_SEC
+call :yaml_get "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC" STT_BRIDGE_REALTIME_IDLE_RETURN_SEC
+call :yaml_get "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC" STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC
+call :yaml_get "STT_BRIDGE_CLEAR_BEFORE_FEED" STT_BRIDGE_CLEAR_BEFORE_FEED
+call :yaml_get "STT_BRIDGE_STOP_AFTER_FEED" STT_BRIDGE_STOP_AFTER_FEED
 call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
 call :yaml_get "KOKORO_LANG" KOKORO_LANG
 call :yaml_get "KOKORO_SPEED" KOKORO_SPEED
