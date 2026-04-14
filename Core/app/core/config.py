@@ -41,9 +41,9 @@ def _load_project_yaml() -> dict[str, str]:
     return data
 
 
-# Priority: project config.yaml > real process env/.env defaults
+# Priority: real process env/.env > project config.yaml defaults
 for _k, _v in _load_project_yaml().items():
-    os.environ[_k] = _v
+    os.environ.setdefault(_k, _v)
 
 
 class Settings(BaseSettings):

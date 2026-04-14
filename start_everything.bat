@@ -98,6 +98,11 @@ set "CORE_DIR=%AI_ROOT%\Core"
 set "GPT_DIR=%AI_ROOT%\GPT-SoVITS-main\GPT-SoVITS-main"
 set "STT_DIR=%AI_ROOT%\RealtimeSTT-master\RealtimeSTT-master"
 set "UI_DIR=%AI_ROOT%\live2d-desktop"
+set "RUNTIME_DATA_DIR=%TEMP%\project-avis-runtime"
+set "RUNTIME_CHROMA_DIR=%RUNTIME_DATA_DIR%\chroma"
+set "RUNTIME_SQLITE_PATH=%RUNTIME_DATA_DIR%\memory.db"
+if not exist "%RUNTIME_DATA_DIR%" mkdir "%RUNTIME_DATA_DIR%" >nul 2>nul
+if not exist "%RUNTIME_CHROMA_DIR%" mkdir "%RUNTIME_CHROMA_DIR%" >nul 2>nul
 if not defined UV_PROJECT_ENVIRONMENT set "UV_PROJECT_ENVIRONMENT=%TEMP%\project-avis-core-venv"
 set "CORE_VENV_PY=%UV_PROJECT_ENVIRONMENT%\Scripts\python.exe"
 if not defined GGUF_QWEN_MODEL_PATH set "GGUF_QWEN_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_QWEN_MODEL%"
@@ -229,6 +234,16 @@ for /f "delims=" %%I in ('where uv 2^>nul') do (
   if not defined UV_EXE set "UV_EXE=%%~fI"
 )
 
+set "STT_SERVER_CMD="
+for /f "delims=" %%I in ('where stt-server.exe 2^>nul') do (
+  if not defined STT_SERVER_CMD set "STT_SERVER_CMD=%%~fI"
+)
+if not defined STT_SERVER_CMD (
+  for /f "delims=" %%I in ('where stt-server 2^>nul') do (
+    if not defined STT_SERVER_CMD set "STT_SERVER_CMD=%%~fI"
+  )
+)
+
 if not exist "%CORE_DIR%" (
   echo [ERROR] Core folder not found: %CORE_DIR%
   exit /b 1
@@ -269,8 +284,14 @@ if not exist "%CORE_DIR%\configs\tts_profiles.yaml" (
 echo [INFO] uv: %UV_EXE%
 echo [INFO] uv cache: %UV_CACHE_DIR%
 echo [INFO] uv env: %UV_PROJECT_ENVIRONMENT%
+echo [INFO] runtime data dir: %RUNTIME_DATA_DIR%
 echo [INFO] TTS provider: %TTS_PROVIDER%
 echo [INFO] LLM provider: %LLM_PROVIDER%
+if defined STT_SERVER_CMD (
+  echo [INFO] RealtimeSTT launcher: %STT_SERVER_CMD%
+) else (
+  echo [INFO] RealtimeSTT launcher: python -m RealtimeSTT_server.stt_server
+)
 if /I "%LLM_PROVIDER%"=="gguf" (
   echo [INFO] GGUF model profile: %LLM_MODEL_PROFILE%
   echo [INFO] GGUF model id: %GGUF_MODEL%
@@ -350,13 +371,23 @@ if "%DRY_RUN%"=="0" (
     )
   )
 
-  echo [PRECHECK] Ensuring RealtimeSTT runtime packages...
-  "%UV_EXE%" --directory "%CORE_DIR%" run python -c "from RealtimeSTT import AudioToTextRecorder; import RealtimeSTT_server.stt_server" 1>nul 2>nul
-  if errorlevel 1 (
-    echo [ERROR] RealtimeSTT import check failed in uv env.
-    echo [HINT] Confirm source path exists: %STT_DIR%
-    echo [HINT] Then run: uv --directory "%CORE_DIR%" sync
-    exit /b 1
+  echo [PRECHECK] Checking RealtimeSTT launcher...
+  if defined STT_SERVER_CMD (
+    "%STT_SERVER_CMD%" --help 1>nul 2>nul
+    if errorlevel 1 (
+      echo [ERROR] RealtimeSTT launcher is not executable: %STT_SERVER_CMD%
+      exit /b 1
+    )
+  ) else (
+    pushd "%STT_DIR%" >nul
+    python -c "from RealtimeSTT import AudioToTextRecorder; import RealtimeSTT_server.stt_server" 1>nul 2>nul
+    if errorlevel 1 (
+      popd >nul
+      echo [ERROR] RealtimeSTT check failed.
+      echo [HINT] Install and expose stt-server in PATH, or make sure python can run RealtimeSTT in: %STT_DIR%
+      exit /b 1
+    )
+    popd >nul
   )
 
   "%UV_EXE%" --directory "%CORE_DIR%" run python -c "import pyaudio" 1>nul 2>nul
@@ -374,6 +405,13 @@ if "%DRY_RUN%"=="0" if "%CLEAN_PORTS%"=="1" (
   call :kill_port 9880
   call :kill_port 8011
   call :kill_port 8012
+)
+set "STT_PORTS_IN_USE=0"
+for /f "delims=" %%I in ('powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $a=Get-NetTCPConnection -State Listen -LocalPort 8011 -EA SilentlyContinue; $b=Get-NetTCPConnection -State Listen -LocalPort 8012 -EA SilentlyContinue; if($a -and $b){'1'}else{'0'}"') do (
+  if not "%%I"=="" set "STT_PORTS_IN_USE=%%I"
+)
+if "%STT_PORTS_IN_USE%"=="1" (
+  echo [WARN] RealtimeSTT ports 8011/8012 are already occupied. Existing STT service will be reused.
 )
 
 set "RUNNER_DIR=%TEMP%\neuro_core_launchers"
@@ -428,7 +466,11 @@ echo [2/5] Preparing RealtimeSTT launcher...
   echo title RealtimeSTT
   echo cd /d "%STT_DIR%"
   echo set "CUDA_VISIBLE_DEVICES=-1"
-  echo "%UV_EXE%" --directory "%CORE_DIR%" run python -m RealtimeSTT_server.stt_server -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
+  if defined STT_SERVER_CMD (
+    echo "%STT_SERVER_CMD%" -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
+  ) else (
+    echo python -m RealtimeSTT_server.stt_server -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
+  )
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
 
@@ -478,6 +520,8 @@ echo [5/6] Preparing Core backend launcher...
   echo title Core Backend
   echo cd /d "%CORE_DIR%"
   echo set "CUDA_VISIBLE_DEVICES=-1"
+  echo set "SQLITE_PATH=%RUNTIME_SQLITE_PATH%"
+  echo set "CHROMA_PATH=%RUNTIME_CHROMA_DIR%"
   echo "%UV_EXE%" --directory "%CORE_DIR%" run uvicorn app.main:app --host 0.0.0.0 --port 8080
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
@@ -497,7 +541,11 @@ if "%NO_UI%"=="0" (
 if "%DRY_RUN%"=="1" (
   if /I "%LLM_PROVIDER%"=="gguf" echo [DRY] start "GGUF LLM" cmd /k "%RUNNER_DIR%\gguf_llm.cmd"
   echo [DRY] start "TTS Backend" cmd /k "%RUNNER_DIR%\tts_backend.cmd"
-  echo [DRY] start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
+  if "%STT_PORTS_IN_USE%"=="1" (
+    echo [DRY] RealtimeSTT already active on 8011/8012, skip duplicate launcher.
+  ) else (
+    echo [DRY] start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
+  )
   echo [DRY] start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
   echo [DRY] start "WeChat Bridge" cmd /k "%RUNNER_DIR%\wechat_bridge.cmd"
   echo [DRY] start "Core Backend" cmd /k "%RUNNER_DIR%\core_backend.cmd"
@@ -508,17 +556,23 @@ if "%DRY_RUN%"=="1" (
 if /I "%LLM_PROVIDER%"=="gguf" (
   start "GGUF LLM" cmd /k "%RUNNER_DIR%\gguf_llm.cmd"
   timeout /t 3 /nobreak >nul
-  call :wait_http "%GGUF_BASE_URL%/models" 45 2
+  call :wait_http "%GGUF_BASE_URL%/models" 300 2
   if errorlevel 1 (
-    echo [ERROR] GGUF service did not become ready: %GGUF_BASE_URL%/models
-    exit /b 1
+    echo [WARN] GGUF service is still warming up: %GGUF_BASE_URL%/models
+    echo [WARN] Continuing startup. Core may report degraded until GGUF is ready.
+  ) else (
+    echo [OK] GGUF service is reachable.
   )
 )
 
 start "TTS Backend" cmd /k "%RUNNER_DIR%\tts_backend.cmd"
 timeout /t 2 /nobreak >nul
-start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
-timeout /t 2 /nobreak >nul
+if "%STT_PORTS_IN_USE%"=="1" (
+  echo [INFO] RealtimeSTT already active on 8011/8012, skipping duplicate launcher.
+) else (
+  start "RealtimeSTT" cmd /k "%RUNNER_DIR%\realtimestt.cmd"
+  timeout /t 2 /nobreak >nul
+)
 start "STT Bridge" cmd /k "%RUNNER_DIR%\stt_bridge.cmd"
 timeout /t 2 /nobreak >nul
 start "WeChat Bridge" cmd /k "%RUNNER_DIR%\wechat_bridge.cmd"
@@ -552,6 +606,9 @@ for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference
   if not "%%P"=="" (
     echo [PORT] !PORT! occupied by PID %%P, terminating...
     taskkill /PID %%P /F >nul 2>nul
+    if errorlevel 1 (
+      echo [WARN] Failed to terminate PID %%P on port !PORT!.
+    )
   )
 )
 exit /b 0
