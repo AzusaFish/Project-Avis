@@ -87,12 +87,19 @@ if "%AI_ROOT:~-1%"=="\" set "AI_ROOT=%AI_ROOT:~0,-1%"
 if not exist "%AI_ROOT%\Core" if exist "%AI_ROOT%\Development\AI\Core" (
   set "AI_ROOT=%AI_ROOT%\Development\AI"
 )
+if /I "%HTTP_PROXY%"=="http://127.0.0.1:9" set "HTTP_PROXY="
+if /I "%HTTPS_PROXY%"=="http://127.0.0.1:9" set "HTTPS_PROXY="
+if /I "%ALL_PROXY%"=="http://127.0.0.1:9" set "ALL_PROXY="
+if /I "%http_proxy%"=="http://127.0.0.1:9" set "http_proxy="
+if /I "%https_proxy%"=="http://127.0.0.1:9" set "https_proxy="
+if /I "%all_proxy%"=="http://127.0.0.1:9" set "all_proxy="
 
 set "CORE_DIR=%AI_ROOT%\Core"
 set "GPT_DIR=%AI_ROOT%\GPT-SoVITS-main\GPT-SoVITS-main"
 set "STT_DIR=%AI_ROOT%\RealtimeSTT-master\RealtimeSTT-master"
 set "UI_DIR=%AI_ROOT%\live2d-desktop"
-set "CORE_VENV_PY=%CORE_DIR%\.venv\Scripts\python.exe"
+if not defined UV_PROJECT_ENVIRONMENT set "UV_PROJECT_ENVIRONMENT=%TEMP%\project-avis-core-venv"
+set "CORE_VENV_PY=%UV_PROJECT_ENVIRONMENT%\Scripts\python.exe"
 if not defined GGUF_QWEN_MODEL_PATH set "GGUF_QWEN_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_QWEN_MODEL%"
 if not defined GGUF_INTERNVL_MODEL_PATH set "GGUF_INTERNVL_MODEL_PATH=%AI_ROOT%\Model\Base\InternVL14B"
 if /I "%LLM_MODEL_PROFILE%"=="qwen" (
@@ -243,6 +250,8 @@ if not defined UV_EXE (
   echo [HINT] Install uv first: pip install uv
   exit /b 1
 )
+if not defined UV_CACHE_DIR set "UV_CACHE_DIR=%TEMP%\project-avis-uv-cache"
+if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>nul
 
 if not exist "%CORE_DIR%\.env" (
   if exist "%CORE_DIR%\.env.example" (
@@ -258,6 +267,8 @@ if not exist "%CORE_DIR%\configs\tts_profiles.yaml" (
 )
 
 echo [INFO] uv: %UV_EXE%
+echo [INFO] uv cache: %UV_CACHE_DIR%
+echo [INFO] uv env: %UV_PROJECT_ENVIRONMENT%
 echo [INFO] TTS provider: %TTS_PROVIDER%
 echo [INFO] LLM provider: %LLM_PROVIDER%
 if /I "%LLM_PROVIDER%"=="gguf" (

@@ -8,6 +8,8 @@
 **/env/
 .conda-lf/
 
+config.yaml
+
 # =====================
 # Python caches / build
 # =====================
@@ -105,7 +107,7 @@ Tuning/Data_Collection/
 
 # Others
 ToDo.md
-Core/instructions/
+instructions/
 Tuning/LLaMa_Factory/tools/
 /Tuning/Data_Collection
 Tuning/Data_Collection/neuro.py

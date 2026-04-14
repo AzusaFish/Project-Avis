@@ -1,0 +1,20 @@
+﻿# WSL2/Linux-friendly dependency list for Unsloth training/export.
+# If you need CUDA PyTorch wheels, install torch/torchvision/torchaudio first, for example:
+#   pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
+# Then run:
+#   pip install -r requirements.txt
+
+torch
+torchvision
+torchaudio
+
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+xformers
+trl
+peft
+accelerate
+bitsandbytes
+
+datasets
+transformers
+huggingface_hub

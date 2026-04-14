@@ -755,16 +755,6 @@ wheels = [
 ]
 
 [[package]]
-name = "itchat-uos"
-version = "1.5.0.dev0"
-source = { git = "https://github.com/why2lyj/ItChat-UOS.git#4ed6517c99c763b80beee7d9e39a5a372c915760" }
-dependencies = [
-    { name = "pypng" },
-    { name = "pyqrcode" },
-    { name = "requests" },
-]
-
-[[package]]
 name = "jieba-fast"
 version = "0.53"
 source = { registry = "https://pypi.org/simple" }
@@ -1014,7 +1004,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "genie-tts" },
     { name = "httpx" },
-    { name = "itchat-uos" },
     { name = "kokoro-onnx" },
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -1048,7 +1037,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "genie-tts", specifier = ">=0.1.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "itchat-uos", git = "https://github.com/why2lyj/ItChat-UOS.git" },
     { name = "kokoro-onnx", specifier = ">=0.4.9" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "onnxruntime", specifier = ">=1.19.0" },
@@ -1059,7 +1047,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "realtimestt", editable = "../RealtimeSTT-master/RealtimeSTT-master" },
+    { name = "realtimestt" },
     { name = "soundfile", specifier = ">=0.12.1" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "tenacity", specifier = ">=9.0.0" },
@@ -1770,15 +1758,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pypng"
-version = "0.20220715.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/93/cd/112f092ec27cca83e0516de0a3368dbd9128c187fb6b52aaaa7cde39c96d/pypng-0.20220715.0.tar.gz", hash = "sha256:739c433ba96f078315de54c0db975aee537cbc3e1d0ae4ed9aab0ca1e427e2c1", size = 128992, upload-time = "2022-07-15T14:11:05.301Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3e/b9/3766cc361d93edb2ce81e2e1f87dd98f314d7d513877a342d31b30741680/pypng-0.20220715.0-py3-none-any.whl", hash = "sha256:4a43e969b8f5aaafb2a415536c1a8ec7e341cd6a3f957fd5b5f32a4cfeed902c", size = 58057, upload-time = "2022-07-15T14:11:03.713Z" },
-]
-
-[[package]]
 name = "pyproject-hooks"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1786,12 +1765,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/e7/82/28175b2414effca1c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/24/12818598c362d7f300f18e74db45963dbcb85150324092410c8b49405e42/pyproject_hooks-1.2.0-py3-none-any.whl", hash = "sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913", size = 10216, upload-time = "2024-09-29T09:24:11.978Z" },
 ]
-
-[[package]]
-name = "pyqrcode"
-version = "1.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/37/61/f07226075c347897937d4086ef8e55f0a62ae535e28069884ac68d979316/PyQRCode-1.2.1.tar.gz", hash = "sha256:fdbf7634733e56b72e27f9bce46e4550b75a3a2c420414035cae9d9d26b234d5", size = 36989, upload-time = "2016-06-20T03:28:03.411Z" }
 
 [[package]]
 name = "pyreadline3"
@@ -1890,7 +1863,7 @@ wheels = [
 [[package]]
 name = "realtimestt"
 version = "0.3.104"
-source = { editable = "../RealtimeSTT-master/RealtimeSTT-master" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "faster-whisper" },
     { name = "halo" },
@@ -1905,21 +1878,9 @@ dependencies = [
     { name = "websocket-client" },
     { name = "websockets" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "faster-whisper", specifier = "==1.1.1" },
-    { name = "halo", specifier = "==0.0.31" },
-    { name = "openwakeword", specifier = ">=0.4.0" },
-    { name = "pvporcupine", specifier = "==1.9.5" },
-    { name = "pyaudio", specifier = "==0.2.14" },
-    { name = "scipy", specifier = "==1.15.2" },
-    { name = "soundfile", specifier = "==0.13.1" },
-    { name = "torch" },
-    { name = "torchaudio" },
-    { name = "webrtcvad-wheels", specifier = "==2.0.14" },
-    { name = "websocket-client", specifier = "==1.8.0" },
-    { name = "websockets", specifier = "==15.0.1" },
+sdist = { url = "https://files.pythonhosted.org/packages/29/15/70c63317462a153ae46a1857e35b21c4de94729f56d8f1b899fbc5ff3b52/realtimestt-0.3.104.tar.gz", hash = "sha256:96bafae0e839c3b60729462cf760c5fc104569c9839fc1071b5afecc1a2b351f", size = 118257, upload-time = "2025-05-03T21:47:33.78Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/24/df28da0f3c5f0d4760e1492e7cee937e0aa72897d4cc41a36ee8c46af5c1/realtimestt-0.3.104-py3-none-any.whl", hash = "sha256:d0a4030551afa3d54b729d94f8a23cca800ef0b21e7778e84ab7ece014c9135f", size = 110633, upload-time = "2025-05-03T21:47:32.59Z" },
 ]
 
 [[package]]

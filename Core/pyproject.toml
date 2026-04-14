@@ -28,7 +28,6 @@ dependencies = [
   "pyaudio>=0.2.14",
   "wcferry; platform_system == 'Windows'",
   "RealtimeSTT",
-  "itchat-uos",
 ]
 
 [dependency-groups]
@@ -39,7 +38,3 @@ dev = [
 
 [tool.uv]
 package = false
-
-[tool.uv.sources]
-RealtimeSTT = { path = "../RealtimeSTT-master/RealtimeSTT-master", editable = true }
-itchat-uos = { git = "https://github.com/why2lyj/ItChat-UOS.git" }
