@@ -12,8 +12,6 @@ from app.core.config import settings
 
 
 class DesktopScreenshotTool:
-    """Capture current desktop and return image path for main LLM interpretation."""
-
     name = "desktop_screenshot"
 
     def _capture_windows(self, output_path: Path, max_edge: int) -> None:

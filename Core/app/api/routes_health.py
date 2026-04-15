@@ -24,14 +24,10 @@ router = APIRouter()
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    # 返回进程级健康状态。
-    # 这是最基础探针：只代表“Core 进程活着”，不代表依赖都正常。
-    """Public API `health` used by other modules or route handlers."""
     return {"status": "ok"}
 
 
 async def _tcp_probe(url: str, timeout_sec: float = 0.6) -> dict[str, str | bool | int]:
-    """Internal helper `_tcp_probe` used by this module implementation."""
     parsed = urlparse(url)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -47,8 +43,6 @@ async def _tcp_probe(url: str, timeout_sec: float = 0.6) -> dict[str, str | bool
 
 @router.get("/health/deps")
 async def health_deps() -> dict:
-    # 依赖可用性检查：服务端口连通 + 关键本地目录存在性。
-    """Public API `health_deps` used by other modules or route handlers."""
     provider = settings.llm_provider.lower().strip()
     if provider == "ollama":
         llm_url = settings.ollama_base_url

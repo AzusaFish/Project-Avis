@@ -16,7 +16,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _load_project_yaml() -> dict[str, str]:
-    """Load flat key-value YAML from project root config.yaml."""
     config_path = Path(__file__).resolve().parents[3] / "config.yaml"
     data: dict[str, str] = {}
     if not config_path.exists():
@@ -41,27 +40,18 @@ def _load_project_yaml() -> dict[str, str]:
     return data
 
 
-# Priority: real process env/.env > project config.yaml defaults
 for _k, _v in _load_project_yaml().items():
     os.environ.setdefault(_k, _v)
 
 
 class Settings(BaseSettings):
-    # 规则：
-    # 1) alias="APP_NAME" 表示读取环境变量 APP_NAME
-    # 2) default=... 表示环境变量缺失时的默认值
-    # 3) 字段类型由 Pydantic 自动转换（比如 "8080" -> int）
-    """Settings: main class container for related behavior in this module."""
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # ===== 应用自身监听参数 =====
     app_name: str = Field(default="neuro_core", alias="APP_NAME")
     app_env: str = Field(default="dev", alias="APP_ENV")
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
 
-    # ===== LLM 通用参数（OpenAI 兼容协议）=====
-    # 当 LLM_PROVIDER=openai 时，主要使用这一组配置。
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")
     llm_base_url: str = Field(default="http://127.0.0.1:8001/v1", alias="LLM_BASE_URL")
     llm_model: str = Field(default="Qwen/Qwen2.5-14B-Instruct-GPTQ-Int4", alias="LLM_MODEL")
@@ -73,12 +63,10 @@ class Settings(BaseSettings):
     llm_max_context: int = Field(default=8192, alias="LLM_MAX_CONTEXT")
     llm_max_output: int = Field(default=512, alias="LLM_MAX_OUTPUT")
     assistant_max_chars: int = Field(default=260, alias="ASSISTANT_MAX_CHARS")
-    # assistant_stream_* 控制“字幕流式回放”的切片大小与时间间隔。
     assistant_stream_chunk_chars: int = Field(default=12, alias="ASSISTANT_STREAM_CHUNK_CHARS")
     assistant_stream_interval_ms: int = Field(default=25, alias="ASSISTANT_STREAM_INTERVAL_MS")
     llm_debug_to_frontend: bool = Field(default=True, alias="LLM_DEBUG_TO_FRONTEND")
 
-    # ===== GGUF / llama.cpp(OpenAI-compatible server) =====
     gguf_base_url: str = Field(default="http://127.0.0.1:8081/v1", alias="GGUF_BASE_URL")
     gguf_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_MODEL")
     gguf_qwen_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_QWEN_MODEL")
@@ -86,8 +74,6 @@ class Settings(BaseSettings):
     gguf_model_path: str = Field(default="", alias="GGUF_MODEL_PATH")
     gguf_mmproj_path: str = Field(default="", alias="GGUF_MMPROJ_PATH")
 
-    # ===== Ollama 原生参数 =====
-    # 当 LLM_PROVIDER=ollama 时，LLMRouter 走 /api/chat。
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="qwen2.5:14b", alias="OLLAMA_MODEL")
     ollama_timeout_sec: int = Field(default=60, alias="OLLAMA_TIMEOUT_SEC")
@@ -99,7 +85,6 @@ class Settings(BaseSettings):
     context_reserved_for_response: int = Field(default=700, alias="CONTEXT_RESERVED_FOR_RESPONSE")
     context_reserved_for_tools: int = Field(default=800, alias="CONTEXT_RESERVED_FOR_TOOLS")
 
-    # ===== 多模态子服务地址 =====
     tts_base_url: str = Field(default="http://127.0.0.1:9880", alias="TTS_BASE_URL")
     tts_provider: str = Field(default="kokoro", alias="TTS_PROVIDER")
     tts_profile_path: str = Field(default="./configs/tts_profiles.yaml", alias="TTS_PROFILE_PATH")
@@ -130,7 +115,6 @@ class Settings(BaseSettings):
     vision_base_url: str = Field(default="http://127.0.0.1:9002", alias="VISION_BASE_URL")
     screenshot_max_edge: int = Field(default=768, alias="SCREENSHOT_MAX_EDGE")
 
-    # ===== 本地仓库路径（主要用于 /health/deps 自检展示）=====
     gpt_sovits_repo: str = Field(
         default="../GPT-SoVITS-main/GPT-SoVITS-main",
         alias="GPT_SOVITS_REPO",
@@ -148,30 +132,25 @@ class Settings(BaseSettings):
         alias="REFERENCE_CORE_REPO",
     )
 
-    # ===== 外部桥接服务 =====
     wechat_bridge_url: str = Field(default="http://127.0.0.1:9010", alias="WECHAT_BRIDGE_URL")
     sts_bridge_url: str = Field(default="http://127.0.0.1:9011", alias="STS_BRIDGE_URL")
     search_api_url: str = Field(default="http://127.0.0.1:9012/search", alias="SEARCH_API_URL")
 
-    # ===== 记忆存储 =====
     sqlite_path: str = Field(default="./data/memory.db", alias="SQLITE_PATH")
     chroma_path: str = Field(default="./data/chroma", alias="CHROMA_PATH")
     persona_collection: str = Field(default="persona_lines", alias="PERSONA_COLLECTION")
     memory_collection: str = Field(default="long_term_memory", alias="MEMORY_COLLECTION")
 
-    # ===== 运行时节奏参数 =====
     agent_tick_interval_sec: float = Field(default=0.2, alias="AGENT_TICK_INTERVAL_SEC")
     proactive_silence_sec: int = Field(default=300, alias="PROACTIVE_SILENCE_SEC")
     think_max_continuations: int = Field(default=3, alias="THINK_MAX_CONTINUATIONS")
 
-    # ===== 上下文压缩（伪 KV 压缩） =====
     kv_compress_enabled: bool = Field(default=True, alias="KV_COMPRESS_ENABLED")
     kv_compress_trigger_tokens: int = Field(default=2600, alias="KV_COMPRESS_TRIGGER_TOKENS")
     kv_compress_keep_last_turns: int = Field(default=8, alias="KV_COMPRESS_KEEP_LAST_TURNS")
     kv_compress_source_messages: int = Field(default=60, alias="KV_COMPRESS_SOURCE_MESSAGES")
     kv_compress_min_turns: int = Field(default=6, alias="KV_COMPRESS_MIN_TURNS")
 
-    # ===== 异步记忆总结与反思 =====
     memory_reflect_enabled: bool = Field(default=True, alias="MEMORY_REFLECT_ENABLED")
     memory_reflect_poll_sec: int = Field(default=45, alias="MEMORY_REFLECT_POLL_SEC")
     memory_reflect_turn_interval: int = Field(default=100, alias="MEMORY_REFLECT_TURN_INTERVAL")
@@ -180,12 +159,10 @@ class Settings(BaseSettings):
     memory_reflect_max_notes: int = Field(default=12, alias="MEMORY_REFLECT_MAX_NOTES")
     memory_recall_top_k: int = Field(default=4, alias="MEMORY_RECALL_TOP_K")
 
-    # ===== L1：短期记忆窗口管理 =====
     memory_context_recent_window: int = Field(default=18, alias="MEMORY_CONTEXT_RECENT_WINDOW")
     memory_context_pinned_limit: int = Field(default=8, alias="MEMORY_CONTEXT_PINNED_LIMIT")
     memory_pin_importance_threshold: float = Field(default=0.9, alias="MEMORY_PIN_IMPORTANCE_THRESHOLD")
 
-    # ===== L2：情绪衰减与混合检索 =====
     memory_decay_lambda_base: float = Field(default=0.035, alias="MEMORY_DECAY_LAMBDA_BASE")
     memory_decay_negative_lambda_multiplier: float = Field(
         default=0.45,
@@ -215,7 +192,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def expand_path_like_fields(self) -> "Settings":
-        """Expand env vars / home shorthand in path-like settings."""
         path_fields = (
             "ollama_models_dir",
             "gguf_model_path",

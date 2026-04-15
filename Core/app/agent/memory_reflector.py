@@ -22,10 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryReflector:
-    """Periodic dialogue reflection worker."""
-
     def __init__(self, memory: MemoryFacade, llm: LLMRouter) -> None:
-        """Initialize worker dependencies."""
         self.memory = memory
         self.llm = llm
         self._running = False
@@ -39,11 +36,9 @@ class MemoryReflector:
         }
 
     def stop(self) -> None:
-        """Stop loop on next tick."""
         self._running = False
 
     async def run_forever(self) -> None:
-        """Main periodic loop."""
         self._running = True
         logger.info("memory reflector started")
         while self._running:
@@ -55,7 +50,6 @@ class MemoryReflector:
             await asyncio.sleep(max(10, int(settings.memory_reflect_poll_sec)))
 
     async def _score_short_term_once(self) -> None:
-        """当短期记忆累计到阈值时，调用 LLM 评审重要度与情绪。"""
         self._score_debug.update(
             {
                 "last_run_at": datetime.now().isoformat(timespec="seconds"),
@@ -189,7 +183,6 @@ class MemoryReflector:
         return out
 
     def get_score_debug_state(self) -> dict[str, Any]:
-        """Export last short-term LLM scoring run summary."""
         return dict(self._score_debug)
 
     async def _tick_once(self) -> None:
@@ -291,7 +284,6 @@ class MemoryReflector:
                     if s:
                         out.append(s)
 
-        # stable dedup + cap
         dedup: list[str] = []
         seen: set[str] = set()
         for item in out:

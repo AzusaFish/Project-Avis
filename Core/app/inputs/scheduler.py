@@ -33,7 +33,6 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 
 def mark_activity(kind: str = "generic", text: str = "") -> None:
-    """Mark activity and update conversation engagement level [0.05, 1.0]."""
     global _last_active, _engagement
     with _active_lock:
         _last_active = datetime.utcnow()
@@ -43,7 +42,6 @@ def mark_activity(kind: str = "generic", text: str = "") -> None:
         elif kind in {"user_audio", "user_interruption"}:
             _engagement = _clamp(_engagement + 0.08, 0.05, 1.0)
         elif kind == "schedule_tick":
-            # Repeated silence-triggered rounds imply user inactivity.
             _engagement = _clamp(_engagement - 0.08, 0.05, 1.0)
         elif kind == "assistant_response":
             _engagement = _clamp(_engagement - 0.01, 0.05, 1.0)
@@ -60,7 +58,6 @@ def _read_engagement() -> float:
 
 
 def _silence_multiplier(engagement: float) -> float:
-    # Lower engagement => longer silence interval before proactive attempts.
     if engagement >= 0.8:
         return 0.7
     if engagement >= 0.55:
@@ -71,10 +68,6 @@ def _silence_multiplier(engagement: float) -> float:
 
 
 async def proactive_scheduler(bus: EventBus) -> None:
-    # 轮询静默时长，到达阈值后投递主动发话事件。
-    # 注意：当前实现只在内部更新时间，不感知真实用户活跃事件。
-    # 未来可通过订阅 USER_TEXT/USER_AUDIO_CHUNK 来刷新 last_active。
-    """Public API `proactive_scheduler` used by other modules or route handlers."""
     while True:
         await asyncio.sleep(1)
         engagement = _read_engagement()

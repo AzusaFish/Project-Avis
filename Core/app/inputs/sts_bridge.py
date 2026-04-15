@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 async def sts_state_watcher(bus: EventBus) -> None:
-    # 周期拉取游戏状态，并转换成 GAME_STATE 事件。
-    # 这里把复杂 JSON 直接转字符串喂给 LLM，属于“先可用再精细化”的策略。
-    """Public API `sts_state_watcher` used by other modules or route handlers."""
     async with httpx.AsyncClient(timeout=8.0) as client:
         while True:
             try:

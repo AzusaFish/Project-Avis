@@ -16,10 +16,7 @@ from app.core.config import settings
 
 
 class STTService:
-    """STTService: main class container for related behavior in this module."""
     def __init__(self) -> None:
-        # 缓存 STT 提供商与接口地址，避免重复拼接。
-        """Initialize the object state and cache required dependencies."""
         self.provider = settings.stt_provider
         self.base_url = settings.stt_base_url.rstrip("/")
 
@@ -29,9 +26,6 @@ class STTService:
         sample_rate: int = 16000,
         timeout_sec: float | None = None,
     ) -> str:
-        # 上传音频分片并返回转写文本。
-        # 约定：`pcm_base64` 是 PCM16 原始帧的 Base64 字符串。
-        """Public API `transcribe_chunk` used by other modules or route handlers."""
         payload: dict[str, object] = {
             "audio": pcm_base64,
             "sample_rate": sample_rate,

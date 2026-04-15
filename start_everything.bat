@@ -104,6 +104,16 @@ set "RUNTIME_SQLITE_PATH=%RUNTIME_DATA_DIR%\memory.db"
 if not exist "%RUNTIME_DATA_DIR%" mkdir "%RUNTIME_DATA_DIR%" >nul 2>nul
 if not exist "%RUNTIME_CHROMA_DIR%" mkdir "%RUNTIME_CHROMA_DIR%" >nul 2>nul
 if not defined UV_PROJECT_ENVIRONMENT set "UV_PROJECT_ENVIRONMENT=%TEMP%\project-avis-core-venv"
+if exist "%UV_PROJECT_ENVIRONMENT%" (
+  if not exist "%UV_PROJECT_ENVIRONMENT%\Scripts\python.exe" (
+    echo [WARN] Invalid uv env detected, resetting: %UV_PROJECT_ENVIRONMENT%
+    rmdir /s /q "%UV_PROJECT_ENVIRONMENT%" >nul 2>nul
+    if exist "%UV_PROJECT_ENVIRONMENT%" (
+      echo [WARN] Failed to reset uv env path, switching to Core\.venv.
+      set "UV_PROJECT_ENVIRONMENT=%CORE_DIR%\.venv"
+    )
+  )
+)
 set "CORE_VENV_PY=%UV_PROJECT_ENVIRONMENT%\Scripts\python.exe"
 if not defined GGUF_QWEN_MODEL_PATH set "GGUF_QWEN_MODEL_PATH=%AI_ROOT%\Unsloth\exports\gguf\%GGUF_QWEN_MODEL%"
 if not defined GGUF_INTERNVL_MODEL_PATH set "GGUF_INTERNVL_MODEL_PATH=%AI_ROOT%\Model\Base\InternVL14B"

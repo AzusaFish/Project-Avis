@@ -14,12 +14,7 @@ from typing import Protocol
 
 
 class Tool(Protocol):
-    # Protocol 是“结构化接口”：只要对象有同名属性/方法就算实现该接口。
-    # C++ 类比：接近“鸭子类型版纯虚接口”。
-    """Tool: main class container for related behavior in this module."""
     name: str
 
     async def call(self, args: dict) -> str:
-        # 工具统一调用接口：传入参数字典，返回可显示文本。
-        """Public API `call` used by other modules or route handlers."""
         ...

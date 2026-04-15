@@ -7,10 +7,6 @@ Beginner note:
 """
 
 # FastAPI 入口：挂载 HTTP/WS 路由并管理生命周期。
-# 给 C++ 读者的类比：
-# - FastAPI 的 `app` 类似一个“HTTP 服务器对象”
-# - `include_router(...)` 类似“注册一组 URL 回调函数”
-# - `lifespan` 类似“进程启动/退出钩子（init/deinit）”
 
 from contextlib import asynccontextmanager
 
@@ -31,10 +27,6 @@ from app.inputs.websocket_audio import router as audio_ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # FastAPI 生命周期钩子：统一管理启动与关闭流程。
-    # 启动阶段：初始化日志与核心模块。
-    # 注意：`async def` + `await` 表示协程，不会阻塞整个事件循环线程。
-    """Public API `lifespan` used by other modules or route handlers."""
     setup_logging()
     await startup(app)
     try:

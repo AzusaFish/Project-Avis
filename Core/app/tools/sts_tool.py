@@ -16,13 +16,9 @@ from app.core.config import settings
 
 
 class SlayTheSpireTool:
-    """SlayTheSpireTool: main class container for related behavior in this module."""
     name = "sts_action"
-    # args 会原样转发给桥接服务，Core 不做字段级校验。
 
     async def call(self, args: dict) -> str:
-        # 将动作参数转发给杀戮尖塔桥接层执行。
-        """Public API `call` used by other modules or route handlers."""
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.post(f"{settings.sts_bridge_url}/action", json=args)
             resp.raise_for_status()

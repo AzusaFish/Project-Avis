@@ -21,9 +21,6 @@ router = APIRouter(prefix="/integrations")
 
 
 async def _check_http(url: str) -> dict[str, object]:
-    # 对目标 URL 做轻量探活，返回状态码或错误信息。
-    # 这里把 4xx 也视为“服务在线”，因为目标是判活，不是业务正确性。
-    """Internal helper `_check_http` used by this module implementation."""
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(url)
@@ -34,9 +31,6 @@ async def _check_http(url: str) -> dict[str, object]:
 
 @router.get("/status")
 async def deps(request: Request) -> dict[str, object]:
-    # 汇总本地路径、LLM 模型与外部服务连通性。
-    # 汇总输出：便于前端或脚本快速判断“哪块没启动/没配置好”。
-    """Public API `deps` used by other modules or route handlers."""
     llm = request.app.state.llm
 
     paths = {

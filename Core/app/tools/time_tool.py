@@ -6,8 +6,6 @@ from app.core.time_utils import now_payload
 
 
 class CurrentTimeTool:
-    """Simple tool callable by the planner when time info is needed."""
-
     name = "time_now"
 
     async def call(self, args: dict) -> str:

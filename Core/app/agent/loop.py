@@ -49,7 +49,6 @@ EMOTION_TO_ACTION = {
 
 
 class AgentLoop:
-    """AgentLoop: main class container for related behavior in this module."""
     def __init__(
         self,
         bus: EventBus,
@@ -60,7 +59,6 @@ class AgentLoop:
         tools: ToolRegistry,
         frontend: FrontendGateway,
     ) -> None:
-        """Initialize the object state and cache required dependencies."""
         self.bus = bus
         self.llm = llm
         self.tts = tts
@@ -93,10 +91,8 @@ class AgentLoop:
         self._llm_debug_seq = 0
         self._llm_debug_last_request: dict[str, object] = {}
         self._llm_debug_last_response: dict[str, object] = {}
-        # `_running` 相当于主循环停止标志位。
 
     async def _set_agent_state(self, state: AgentState) -> None:
-        """Internal helper `_set_agent_state` used by this module implementation."""
         if self._agent_state == state:
             return
         self._agent_state = state
@@ -112,14 +108,12 @@ class AgentLoop:
         )
 
     def _ensure_audio_worker(self) -> None:
-        """Keep one STT audio worker alive; restart if previous task crashed."""
         if self._audio_worker_task and not self._audio_worker_task.done():
             return
         self._audio_worker_task = asyncio.create_task(self._audio_worker(), name="audio_worker")
 
     @staticmethod
     def _decode_audio_payload(payload: dict[str, object]) -> tuple[bytes, int] | None:
-        """Decode one queue payload into pcm bytes and sample rate."""
         audio = str(payload.get("audio", ""))
         if not audio:
             return None
@@ -138,7 +132,6 @@ class AgentLoop:
         return pcm, sample_rate
 
     async def _audio_worker(self) -> None:
-        """Consume audio chunks serially to protect event loop from STT backpressure."""
         while self._running:
             payload = await self._audio_queue.get()
             taken = 1
@@ -201,13 +194,11 @@ class AgentLoop:
                     self._stt_noise_floor_ema * self._stt_adaptive_multiplier,
                 )
 
-                # 只在低能量段更新噪声底，避免说话期间把门限抬高。
                 if rms_norm < dynamic_threshold * 1.2:
                     self._stt_noise_floor_ema = self._stt_noise_floor_ema * 0.92 + rms_norm * 0.08
 
                 if rms_norm < dynamic_threshold:
                     self._stt_skipped_by_gate += 1
-                    # 连续跳过太多批次时做一次探测，防止低音量用户被永久门控。
                     if self._stt_skipped_by_gate < self._stt_force_probe_after_skips:
                         continue
                     self._stt_skipped_by_gate = 0
@@ -229,7 +220,6 @@ class AgentLoop:
                     )
                 ).strip()
                 if text:
-                    # 简单去重：避免相同片段在短时间重复灌入对话流。
                     if text == self._last_stt_text:
                         continue
                     self._last_stt_text = text
@@ -248,26 +238,19 @@ class AgentLoop:
                     self._audio_queue.task_done()
 
     async def run_forever(self) -> None:
-        # 启动主事件循环，不断消费总线事件并分派处理。
-        # 这是整个系统的“中枢调度器”。
-        """Public API `run_forever` used by other modules or route handlers."""
         self._running = True
         self._ensure_audio_worker()
         await self._ensure_kv_state()
         logger.info("agent loop started")
         while self._running:
             self._ensure_audio_worker()
-            # 事件驱动：按到达顺序逐个处理，避免复杂锁竞争。
             event = await self.bus.consume()
             try:
                 await self._handle_event(event)
             except Exception:
-                # 单条事件失败不应导致主循环退出，否则后续所有请求都会堆积。
                 logger.exception("agent loop event handling failed")
 
     async def _emit_assistant_stream(self, text: str) -> None:
-        # 将完整文本切分为小块推送前端，实现“边生成边显示”的体验。
-        """Internal helper `_emit_assistant_stream` used by this module implementation."""
         step = max(1, settings.assistant_stream_chunk_chars)
         interval = max(0.0, settings.assistant_stream_interval_ms / 1000.0)
         current = ""
@@ -287,8 +270,6 @@ class AgentLoop:
                 await asyncio.sleep(interval)
 
     async def _emit_runtime_error(self, text: str) -> None:
-        # On runtime failure, push a visible assistant message to frontend instead of silent drop.
-        """Internal helper `_emit_runtime_error` used by this module implementation."""
         err_text = text.strip()
         if not err_text:
             return
@@ -315,18 +296,15 @@ class AgentLoop:
 
     @staticmethod
     def _estimate_speech_duration_sec(text: str, speed: float = 1.0) -> float:
-        """Estimate speech playback time to reduce premature subtitle replacement."""
         content = str(text or "").strip()
         if not content:
             return 0.0
-        # A simple heuristic for English-like TTS pace with punctuation pause.
         chars_per_sec = 14.0 * max(0.5, float(speed))
         punctuation = sum(content.count(ch) for ch in ",.;:!?")
         return max(0.8, len(content) / chars_per_sec + punctuation * 0.08)
 
     @staticmethod
     def _messages_to_prompt_text(messages: list[dict[str, object]]) -> str:
-        """Internal helper `_messages_to_prompt_text` used by this module implementation."""
         lines: list[str] = []
         for item in messages:
             role = str(item.get("role", "user")).upper()
@@ -352,7 +330,6 @@ class AgentLoop:
 
     @staticmethod
     def _clamp_reply_text(text: str, max_chars: int) -> str:
-        """Clamp overly long model outputs to keep replies concise and TTS-friendly."""
         content = str(text or "").strip()
         limit = max(80, int(max_chars))
         if len(content) <= limit:
@@ -370,7 +347,6 @@ class AgentLoop:
 
     @staticmethod
     def _image_file_to_data_url(path_str: str) -> str:
-        """Load local image file and convert to data URL for multimodal chat payload."""
         path = Path(path_str)
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(f"image file not found: {path}")
@@ -381,7 +357,6 @@ class AgentLoop:
         return f"data:{mime};base64,{data}"
 
     async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, object]], raw_output: str = "") -> None:
-        """Internal helper `_emit_llm_debug` used by this module implementation."""
         self._llm_debug_seq += 1
         entry = {
             "seq": self._llm_debug_seq,
@@ -410,7 +385,6 @@ class AgentLoop:
         )
 
     def get_llm_debug_snapshot(self) -> dict[str, object]:
-        """Export latest full LLM input/output payloads for debug API."""
         return {
             "last_request": dict(self._llm_debug_last_request),
             "last_response": dict(self._llm_debug_last_response),
@@ -419,7 +393,6 @@ class AgentLoop:
 
     @staticmethod
     def _extract_partial_speak_text(raw: str) -> str | None:
-        """Best-effort incremental parse for {"action":"speak","text":"..."} stream."""
         if '"speak"' not in raw.lower():
             return None
 
@@ -452,26 +425,20 @@ class AgentLoop:
         if not encoded and not complete:
             return ""
 
-        # Drop unfinished trailing escape for partial chunks.
         if escaped and encoded.endswith("\\"):
             encoded = encoded[:-1]
 
         try:
             return str(json.loads(f'"{encoded}"'))
         except Exception:
-            # Partial stream may contain unfinished escapes; keep a readable fallback.
             return encoded.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
 
     def stop(self) -> None:
-        # 外部停止入口：将循环标记置为 False。
-        """Public API `stop` used by other modules or route handlers."""
         self._running = False
         if self._audio_worker_task:
             self._audio_worker_task.cancel()
 
     async def _ensure_kv_state(self) -> None:
-        # 从 SQLite 元信息恢复上次的压缩摘要，保证重启后记忆连续。
-        """Internal helper `_ensure_kv_state` used by this module implementation."""
         if self._kv_state_loaded:
             return
         try:
@@ -483,8 +450,6 @@ class AgentLoop:
 
     @staticmethod
     def _history_token_estimate(history: list[dict[str, str]], latest_input: str) -> int:
-        # 粗略估算上下文 token，触发阈值时进入压缩流程。
-        """Internal helper `_history_token_estimate` used by this module implementation."""
         total = rough_token_count(latest_input)
         for item in history:
             total += rough_token_count(str(item.get("content", "")))
@@ -495,8 +460,6 @@ class AgentLoop:
         history: list[dict[str, str]],
         latest_input: str,
     ) -> str:
-        # 调用 LLM 生成高密度对话摘要（JSON 输出）。
-        """Internal helper `_compress_history_with_llm` used by this module implementation."""
         source_messages = history[-max(12, int(settings.kv_compress_source_messages)):]
         payload = [
             {
@@ -539,8 +502,6 @@ class AgentLoop:
         history: list[dict[str, str]],
         latest_input: str,
     ) -> list[dict[str, str]]:
-        # 当历史 token 过高时进行压缩，并用“摘要 + 最近对话尾部”替换短期上下文。
-        """Internal helper `_maybe_compress_history` used by this module implementation."""
         await self._ensure_kv_state()
 
         if not history:
@@ -573,11 +534,7 @@ class AgentLoop:
         return [{"role": "system", "content": f"[KV_SUMMARY]\n{self._kv_summary}"}, *tail]
 
     async def _handle_event(self, event: Event) -> None:
-        # 统一处理不同事件类型，驱动 STT/LLM/Tool/TTS 全链路。
-        # 这个函数是“状态机 + 分发器”的角色。
-        """Internal helper `_handle_event` used by this module implementation."""
         if event.event_type == EventType.USER_AUDIO_CHUNK:
-            # 主循环只做入队，重活交给单 worker，避免 STT 堵塞事件循环。
             audio = str(event.payload.get("audio", ""))
             if audio:
                 mark_activity(kind="user_audio")
@@ -586,7 +543,6 @@ class AgentLoop:
                 try:
                     self._audio_queue.put_nowait(packet)
                 except asyncio.QueueFull:
-                    # 丢弃最旧切片，优先保留最新语音。
                     with suppress(asyncio.QueueEmpty):
                         _ = self._audio_queue.get_nowait()
                         self._audio_queue.task_done()
@@ -594,7 +550,6 @@ class AgentLoop:
             return
 
         if event.event_type == EventType.USER_INTERRUPTION:
-            # 用户插嘴时立即打断 TTS。
             mark_activity(kind="user_interruption")
             await self.tts.stop_current()
             await self.bus.publish(Event(event_type=EventType.TTS_STOP, source="agent", payload={}))
@@ -622,7 +577,6 @@ class AgentLoop:
         vision_image_data_url: str | None = None
 
         if event.event_type == EventType.SCHEDULE_TICK:
-            # 定时主动事件：根据积极度动态调整策略。
             engagement = float(event.payload.get("engagement", 0.5))
             can_start_topic = bool(event.payload.get("can_start_topic", True))
             prefer_tool = bool(event.payload.get("prefer_tool", False))
@@ -648,7 +602,6 @@ class AgentLoop:
                     "You may start a brief proactive topic, or choose idle if not needed."
                 )
         elif event.event_type == EventType.TOOL_RESULT:
-            # 工具回调写入 system 记忆，避免污染 user 语义。
             tool_name = str(event.payload.get("tool_name", "")).strip().lower()
             tool_result = str(event.payload.get("tool_result", "")).strip()
             if tool_name == "desktop_screenshot":
@@ -783,7 +736,6 @@ class AgentLoop:
         stream_preview_text = ""
         try:
             if settings.llm_stream:
-                # 真流式：在 JSON 生成过程中实时提取 text 字段并推给前端。
                 chunks: list[str] = []
                 last_stream_text = ""
                 async for delta in self.llm.generate_stream(messages):
@@ -817,11 +769,9 @@ class AgentLoop:
 
         await self._emit_llm_debug(stage="response", messages=messages, raw_output=model_text)
 
-        # LLM 输出必须是动作 JSON；失败时 planner 内部会回退到“普通说话”。
         plan = parse_model_action(model_text)
 
         if plan.action.action_type == AgentActionType.TOOL_CALL and plan.action.tool_name:
-            # 工具调用走“再入队”模式：把结果作为 TOOL_RESULT 让下一轮继续推理。
             self._think_chain_count = 0
             tool_result = await self.tools.call(plan.action.tool_name, plan.action.tool_args or {})
             await self.bus.publish(
@@ -838,7 +788,6 @@ class AgentLoop:
             return
 
         if plan.action.action_type == AgentActionType.THINK:
-            # think 分支：先把当前续说内容输出给用户，再静默注入继续下一句。
             text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
             if text:
                 mark_activity(kind="assistant_response")
@@ -923,7 +872,6 @@ class AgentLoop:
             return
 
         if plan.action.action_type == AgentActionType.ASK:
-            # ask 分支：输出提问后交还控制权，等待用户输入。
             self._think_chain_count = 0
             text = self._clamp_reply_text(plan.action.content or "", settings.assistant_max_chars)
             if text:
@@ -976,7 +924,6 @@ class AgentLoop:
             return
 
         if plan.action.action_type == AgentActionType.SPEAK and plan.action.content:
-            # speak 分支：写记忆 -> 推字幕 -> 播语音 -> 推动作 -> 发响应事件。
             self._think_chain_count = 0
             text = self._clamp_reply_text(plan.action.content, settings.assistant_max_chars)
             mark_activity(kind="assistant_response")
@@ -1001,7 +948,6 @@ class AgentLoop:
             else:
                 await self._emit_assistant_stream(text)
 
-            # Streaming mode relies on frontend incremental TTS playback.
             if not settings.tts_streaming_mode:
                 await self.tts.speak(text=text, emotion=plan.action.emotion or "neutral")
             await self.frontend.broadcast(

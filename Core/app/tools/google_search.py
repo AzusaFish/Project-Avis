@@ -16,13 +16,9 @@ from app.core.config import settings
 
 
 class GoogleSearchTool:
-    """GoogleSearchTool: main class container for related behavior in this module."""
     name = "google_search"
-    # 模型里发起工具调用时，tool_name 必须与这里完全一致。
 
     async def call(self, args: dict) -> str:
-        # 调用搜索服务并提取摘要字段供模型继续推理。
-        """Public API `call` used by other modules or route handlers."""
         query = args.get("query", "")
         async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.get(settings.search_api_url, params={"q": query})
