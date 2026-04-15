@@ -61,6 +61,7 @@ Thumbs.db
 # =====================
 Core/.env
 Core/data/
+Core/runtime/
 Tuning/Unsloth/Data/
 Tuning/Unsloth/avis_lora_model/
 Tuning/Unsloth/avis_lora_model_ver1/
@@ -107,7 +108,7 @@ Tuning/Data_Collection/
 
 # Others
 ToDo.md
-instructions/
+Core/instructions/
 Tuning/LLaMa_Factory/tools/
 /Tuning/Data_Collection
 Tuning/Data_Collection/neuro.py
