@@ -32,10 +32,7 @@ Project-Avis/
 ├── live2d-desktop/         # Tauri + Vue 3 桌面端 (Live2D UI)
 │   ├── src/                # Vue 3 前端代码 (Components, Canvas)
 │   └── src-tauri/          # Tauri Rust 后端
-├── Data/                   # 静态资源与训练原始数据
-│   ├── Live2D Cubism/      # Live2D 模型文件 (Atri, Hiyori 等)
-│   └── Training_Data/      # 数据清洗与构建资源
 ├── Tuning/                 # 模型微调与导出管道
 │   ├── LLaMa_Factory/      # SFT/DPO 训练配置与启动脚本
-│   └── Unsloth/            # 高效微调脚本与模型导出
-└── scripts/                # 全局自动化脚本 (如环境检查、模型下载)
+│   └── Unsloth/            # 纯文本模型微调
+└── scripts/                # 全局自动化脚本
