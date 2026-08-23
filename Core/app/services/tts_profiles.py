@@ -18,11 +18,13 @@ import yaml
 
 
 class TTSProfiles:
+    # Load TTS profiles from the given YAML path.
     def __init__(self, path: str) -> None:
         self.path = Path(path)
         self.data: dict[str, Any] = {}
         self.reload()
 
+    # Reload profiles from disk into memory.
     def reload(self) -> None:
         if not self.path.exists():
             self.data = {}
@@ -30,6 +32,7 @@ class TTSProfiles:
         with self.path.open("r", encoding="utf-8") as f:
             self.data = yaml.safe_load(f) or {}
 
+    # Resolve a speaker profile with optional emotion overrides.
     def resolve(self, speaker: str, emotion: str | None = None) -> dict[str, Any]:
         speakers = self.data.get("speakers", {})
         base = dict(speakers.get(speaker, {}))
@@ -43,10 +46,12 @@ class TTSProfiles:
             base["ref_audio_path"] = self._resolve_path(ref_audio)
         return base
 
+    # Return the configured default speaker if set.
     def default_speaker(self) -> str:
         value = str(self.data.get("default_speaker", "")).strip()
         return value
 
+    # Expand a relative or env path into an absolute path.
     def _resolve_path(self, raw_path: str) -> str:
         expanded = os.path.expandvars(os.path.expanduser(raw_path.strip()))
         candidate = Path(expanded)

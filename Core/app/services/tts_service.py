@@ -17,6 +17,7 @@ from app.services.tts_profiles import TTSProfiles
 
 
 class TTSService:
+    # Initialize TTS clients, defaults, and profiles.
     def __init__(self) -> None:
         self.provider = settings.tts_provider.lower().strip()
         self.base_url = settings.tts_base_url.rstrip("/")
@@ -35,6 +36,7 @@ class TTSService:
         if yaml_default_speaker and self.default_speaker not in speakers:
             self.default_speaker = yaml_default_speaker
 
+    # Synthesize speech using the selected provider.
     async def speak(self, text: str, emotion: str = "neutral", speaker: str | None = None) -> None:
         if not (text or "").strip():
             return
@@ -47,6 +49,7 @@ class TTSService:
             return
         await self._speak_gpt_sovits(text=text, profile=profile)
 
+    # Call the GPT-SoVITS backend with a resolved profile.
     async def _speak_gpt_sovits(self, text: str, profile: dict) -> None:
         payload = {
             "text": text,
@@ -67,6 +70,7 @@ class TTSService:
             resp = await client.post(f"{self.gpt_sovits_base_url}/tts", json=payload)
             resp.raise_for_status()
 
+    # Call the Kokoro backend with OpenAI-style or legacy payloads.
     async def _speak_kokoro(self, text: str, profile: dict) -> None:
         voice = profile.get("kokoro_voice", profile.get("voice", self.kokoro_voice))
         speed = float(profile.get("kokoro_speed", profile.get("speed_factor", self.kokoro_speed)))
@@ -101,6 +105,7 @@ class TTSService:
                     f"openai={resp.status_code} legacy={fallback_resp.status_code}"
                 )
 
+    # Request the backend to stop the current TTS stream.
     async def stop_current(self) -> None:
         if self.provider == "kokoro":
             return

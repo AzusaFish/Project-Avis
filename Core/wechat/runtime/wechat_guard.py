@@ -23,6 +23,7 @@ from app.core.events import Event, EventType
 logger = logging.getLogger(__name__)
 
 
+# Extract messages from supported payload shapes.
 def _extract_messages(payload: Any) -> list[dict[str, Any]]:
     """Extract message list from multiple bridge response shapes."""
     if isinstance(payload, list):
@@ -45,6 +46,7 @@ def _extract_messages(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+# Normalize inbound message into Core event payload.
 def _normalize_incoming(msg: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize raw bridge message to Core event payload."""
     text = str(
@@ -74,6 +76,7 @@ def _normalize_incoming(msg: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+# Poll the WeChat bridge and publish inbound messages.
 async def wechat_watcher(bus: EventBus) -> None:
     """Public API `wechat_watcher` used by other modules or route handlers."""
     poll_url = f"{settings.wechat_bridge_url.rstrip('/')}/poll"

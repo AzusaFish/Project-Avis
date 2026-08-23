@@ -15,6 +15,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Load key-value pairs from the repo-level config.yaml.
 def _load_project_yaml() -> dict[str, str]:
     config_path = Path(__file__).resolve().parents[3] / "config.yaml"
     data: dict[str, str] = {}
@@ -66,6 +67,9 @@ class Settings(BaseSettings):
     assistant_stream_chunk_chars: int = Field(default=12, alias="ASSISTANT_STREAM_CHUNK_CHARS")
     assistant_stream_interval_ms: int = Field(default=25, alias="ASSISTANT_STREAM_INTERVAL_MS")
     llm_debug_to_frontend: bool = Field(default=True, alias="LLM_DEBUG_TO_FRONTEND")
+    llm_force_json: bool = Field(default=True, alias="LLM_FORCE_JSON")
+    llm_force_json_retries: int = Field(default=2, alias="LLM_FORCE_JSON_RETRIES")
+    llm_force_json_disable_stream: bool = Field(default=True, alias="LLM_FORCE_JSON_DISABLE_STREAM")
 
     gguf_base_url: str = Field(default="http://127.0.0.1:8081/v1", alias="GGUF_BASE_URL")
     gguf_model: str = Field(default="Avis-14B-v1.Q4_K_M.gguf", alias="GGUF_MODEL")
@@ -108,9 +112,12 @@ class Settings(BaseSettings):
     stt_transcribe_min_timeout_sec: float = Field(default=1.4, alias="STT_TRANSCRIBE_MIN_TIMEOUT_SEC")
     stt_transcribe_max_timeout_sec: float = Field(default=6.0, alias="STT_TRANSCRIBE_MAX_TIMEOUT_SEC")
     stt_silence_rms_threshold: float = Field(default=0.003, alias="STT_SILENCE_RMS_THRESHOLD")
+    stt_input_rms_gate_enabled: bool = Field(default=False, alias="STT_INPUT_RMS_GATE_ENABLED")
     stt_min_audio_sec: float = Field(default=0.2, alias="STT_MIN_AUDIO_SEC")
     stt_adaptive_noise_multiplier: float = Field(default=2.0, alias="STT_ADAPTIVE_NOISE_MULTIPLIER")
     stt_force_probe_after_skips: int = Field(default=8, alias="STT_FORCE_PROBE_AFTER_SKIPS")
+    stt_http_timeout_sec: float = Field(default=12.0, alias="STT_HTTP_TIMEOUT_SEC")
+    stt_http_retries: int = Field(default=1, alias="STT_HTTP_RETRIES")
     ocr_base_url: str = Field(default="http://127.0.0.1:9001", alias="OCR_BASE_URL")
     vision_base_url: str = Field(default="http://127.0.0.1:9002", alias="VISION_BASE_URL")
     screenshot_max_edge: int = Field(default=768, alias="SCREENSHOT_MAX_EDGE")
@@ -191,6 +198,7 @@ class Settings(BaseSettings):
     memory_hybrid_semantic_pool: int = Field(default=16, alias="MEMORY_HYBRID_SEMANTIC_POOL")
 
     @model_validator(mode="after")
+    # Expand user and env vars for path-like fields.
     def expand_path_like_fields(self) -> "Settings":
         path_fields = (
             "ollama_models_dir",

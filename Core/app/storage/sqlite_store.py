@@ -19,9 +19,11 @@ from app.core.config import settings
 
 
 class SQLiteStore:
+    # Initialize SQLite path from settings.
     def __init__(self) -> None:
         self.path = settings.sqlite_path
 
+    # Create tables and migrate legacy data if needed.
     async def init(self) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         async with aiosqlite.connect(self.path) as conn:
@@ -67,6 +69,7 @@ class SQLiteStore:
             await self._migrate_dialogue_to_short_term(conn)
             await conn.commit()
 
+    # Migrate legacy dialogue rows into short-term buffer.
     async def _migrate_dialogue_to_short_term(self, conn: aiosqlite.Connection) -> None:
         cursor = await conn.execute("SELECT COUNT(*) FROM short_term_buffer")
         row = await cursor.fetchone()
@@ -88,6 +91,7 @@ class SQLiteStore:
             "FROM dialogue ORDER BY id ASC"
         )
 
+    # Insert a short-term memory record.
     async def insert_short_term_memory(
         self,
         role: str,
@@ -116,6 +120,7 @@ class SQLiteStore:
             )
             await conn.commit()
 
+    # Backward-compatible insert into short-term buffer.
     async def insert_dialogue(self, role: str, text: str) -> None:
         await self.insert_short_term_memory(
             role=role,
@@ -128,6 +133,7 @@ class SQLiteStore:
             source_event="dialogue_compat",
         )
 
+    # Fetch the most recent short-term memories.
     async def fetch_recent_short_term(self, limit: int = 16) -> list[dict[str, Any]]:
         async with aiosqlite.connect(self.path) as conn:
             conn.row_factory = aiosqlite.Row
@@ -141,9 +147,11 @@ class SQLiteStore:
         result.reverse()
         return result
 
+    # Fetch recent dialogue entries.
     async def fetch_recent_dialogue(self, limit: int = 16) -> list[dict[str, Any]]:
         return await self.fetch_recent_short_term(limit=limit)
 
+    # Fetch short-term rows after a given id.
     async def fetch_short_term_after_id(self, after_id: int, limit: int = 200) -> list[dict[str, Any]]:
         async with aiosqlite.connect(self.path) as conn:
             conn.row_factory = aiosqlite.Row
@@ -155,18 +163,22 @@ class SQLiteStore:
             rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    # Fetch dialogue rows after a given id.
     async def fetch_dialogue_after_id(self, after_id: int, limit: int = 200) -> list[dict[str, Any]]:
         return await self.fetch_short_term_after_id(after_id=after_id, limit=limit)
 
+    # Return the latest short-term message id.
     async def latest_short_term_id(self) -> int:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute("SELECT COALESCE(MAX(msg_id), 0) FROM short_term_buffer")
             row = await cursor.fetchone()
         return int(row[0] if row else 0)
 
+    # Return the latest dialogue id.
     async def latest_dialogue_id(self) -> int:
         return await self.latest_short_term_id()
 
+    # Read a runtime meta value by key.
     async def get_meta(self, key: str, default: str = "") -> str:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute("SELECT v FROM runtime_meta WHERE k = ?", (key,))
@@ -175,6 +187,7 @@ class SQLiteStore:
             return default
         return str(row[0])
 
+    # Set a runtime meta value by key.
     async def set_meta(self, key: str, value: str) -> None:
         async with aiosqlite.connect(self.path) as conn:
             await conn.execute(
@@ -184,6 +197,7 @@ class SQLiteStore:
             )
             await conn.commit()
 
+    # List dialogue rows with filters and pagination.
     async def list_dialogue(
         self,
         limit: int = 50,
@@ -228,6 +242,7 @@ class SQLiteStore:
             rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    # Count dialogue rows matching filters.
     async def count_dialogue(
         self,
         role: str | None = None,
@@ -259,6 +274,7 @@ class SQLiteStore:
             row = await cursor.fetchone()
         return int(row[0] if row else 0)
 
+    # Count short-term rows by processed flag.
     async def count_short_term_by_processed(self, processed_flag: int = 0) -> int:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute(
@@ -268,6 +284,7 @@ class SQLiteStore:
             row = await cursor.fetchone()
         return int(row[0] if row else 0)
 
+    # Fetch short-term rows by processed flag.
     async def fetch_short_term_by_processed(
         self,
         processed_flag: int = 0,
@@ -283,6 +300,7 @@ class SQLiteStore:
             rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    # Update assessment fields for a short-term row.
     async def update_short_term_assessment(
         self,
         msg_id: int,
@@ -303,6 +321,7 @@ class SQLiteStore:
             await conn.commit()
             return cursor.rowcount > 0
 
+    # Update dialogue text for a given id.
     async def update_dialogue_text(self, dialogue_id: int, text: str) -> bool:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute(
@@ -312,12 +331,14 @@ class SQLiteStore:
             await conn.commit()
             return cursor.rowcount > 0
 
+    # Delete a dialogue row by id.
     async def delete_dialogue(self, dialogue_id: int) -> bool:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute("DELETE FROM short_term_buffer WHERE msg_id = ?", (int(dialogue_id),))
             await conn.commit()
             return cursor.rowcount > 0
 
+    # Clear dialogue rows, optionally by role.
     async def clear_dialogue(self, role: str | None = None) -> int:
         if role:
             sql = "DELETE FROM short_term_buffer WHERE role = ?"

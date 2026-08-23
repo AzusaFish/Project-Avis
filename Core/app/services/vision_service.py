@@ -16,9 +16,11 @@ from app.core.config import settings
 
 
 class VisionService:
+    # Initialize the vision service base URL.
     def __init__(self) -> None:
         self.base_url = settings.vision_base_url.rstrip("/")
 
+    # Send a base64 image for vision analysis and return summary.
     async def analyze(self, image_base64: str) -> str:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(f"{self.base_url}/vision/analyze", json={"image": image_base64})

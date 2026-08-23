@@ -6,15 +6,18 @@ from app.storage.chroma_store import ChromaStore
 
 
 class _FakeMemoryCollection:
+    # Initialize fake collection with optional query response.
     def __init__(self, query_result: dict | None = None) -> None:
         self.query_result = query_result or {}
         self.query_calls: list[dict] = []
         self.add_calls: list[dict] = []
 
+    # Capture query calls and return the stubbed result.
     def query(self, **kwargs):
         self.query_calls.append(kwargs)
         return self.query_result
 
+    # Capture add calls for assertion.
     def add(self, documents, metadatas, ids):
         self.add_calls.append(
             {
@@ -25,6 +28,7 @@ class _FakeMemoryCollection:
         )
 
 
+# Build a ChromaStore stub backed by a fake collection.
 def _make_store(query_result: dict | None = None) -> tuple[ChromaStore, _FakeMemoryCollection]:
     fake = _FakeMemoryCollection(query_result=query_result)
     store = object.__new__(ChromaStore)
@@ -34,6 +38,7 @@ def _make_store(query_result: dict | None = None) -> tuple[ChromaStore, _FakeMem
     return store, fake
 
 
+# Verify negative emotion decays slower than positive/neutral.
 def test_emotional_decay_order_negative_then_positive_then_neutral() -> None:
     store, _ = _make_store()
     now = datetime(2026, 4, 12, tzinfo=timezone.utc)
@@ -87,6 +92,7 @@ def test_emotional_decay_order_negative_then_positive_then_neutral() -> None:
     assert negative_score > positive_score > neutral_score
 
 
+# Ensure hybrid ranking favors recent and important items.
 def test_hybrid_ranking_prefers_recent_and_important_notes() -> None:
     now = datetime.now(timezone.utc)
     query_result = {
@@ -137,6 +143,7 @@ def test_hybrid_ranking_prefers_recent_and_important_notes() -> None:
     assert int(fake.query_calls[0]["n_results"]) >= 6
 
 
+# Ensure add_long_term_notes populates expected metadata.
 def test_add_long_term_notes_includes_l2_metadata_fields() -> None:
     store, fake = _make_store()
 

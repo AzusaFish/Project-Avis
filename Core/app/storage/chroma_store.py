@@ -25,15 +25,18 @@ logger = logging.getLogger(__name__)
 
 
 class ChromaStore:
+    # Initialize Chroma collections for persona and memory.
     def __init__(self) -> None:
         self.client = PersistentClient(path=settings.chroma_path)
         self.persona = self.client.get_or_create_collection(settings.persona_collection)
         self.memory = self.client.get_or_create_collection(settings.memory_collection)
 
+    # Clamp a numeric value within bounds.
     @staticmethod
     def _clamp(value: float, low: float, high: float) -> float:
         return max(low, min(high, value))
 
+    # Safely convert a value to float with fallback.
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
@@ -41,6 +44,7 @@ class ChromaStore:
         except (TypeError, ValueError):
             return default
 
+    # Parse ISO timestamp strings into datetimes.
     @staticmethod
     def _parse_time(raw: Any) -> datetime | None:
         if not isinstance(raw, str) or not raw.strip():
@@ -54,6 +58,7 @@ class ChromaStore:
             return dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
 
+    # Compute hours elapsed since a timestamp.
     @classmethod
     def _hours_since(cls, created_at: Any, *, now: datetime | None = None) -> float:
         dt = cls._parse_time(created_at)
@@ -65,6 +70,7 @@ class ChromaStore:
         delta = anchor - dt
         return max(0.0, delta.total_seconds() / 3600.0)
 
+    # Normalize metadata to simple JSON-safe types.
     @staticmethod
     def _sanitize_metadata(meta: dict[str, Any]) -> dict[str, str | int | float | bool]:
         clean: dict[str, str | int | float | bool] = {}
@@ -78,6 +84,7 @@ class ChromaStore:
                 clean[k] = str(value)
         return clean
 
+    # Extract lightweight topic tags from text.
     @staticmethod
     def _extract_topic_tags(text: str, limit: int = 4) -> str:
         stop_words = {
@@ -113,6 +120,7 @@ class ChromaStore:
                 break
         return ",".join(uniq)
 
+    # Parse topic tags from a delimited string.
     @staticmethod
     def _parse_topic_tags(raw: Any) -> set[str]:
         if not isinstance(raw, str):
@@ -120,6 +128,7 @@ class ChromaStore:
         parts = [x.strip().lower() for x in re.split(r"[,;|]", raw) if x.strip()]
         return set(parts)
 
+    # Infer emotion tag and intensity from metadata.
     @classmethod
     def _infer_emotion_profile(cls, text: str, metadata: dict[str, Any]) -> tuple[str, float]:
         tag = str(metadata.get("emotion_tag", "")).strip().lower()
@@ -130,6 +139,7 @@ class ChromaStore:
             return tag, cls._clamp(cls._safe_float(metadata.get("emotion_intensity"), default=0.3), 0.0, 1.0)
         return "neutral", 0.25
 
+    # Estimate how information-dense a note is.
     @classmethod
     def _estimate_information_density(cls, text: str) -> float:
         t = str(text or "").strip()
@@ -140,6 +150,7 @@ class ChromaStore:
         digit_bonus = 0.1 if any(ch.isdigit() for ch in t) else 0.0
         return cls._clamp(length_factor + symbol_bonus + digit_bonus, 0.0, 1.0)
 
+    # Estimate event severity from metadata with fallback.
     @classmethod
     def _estimate_event_severity(cls, text: str, metadata: dict[str, Any]) -> float:
         explicit = cls._safe_float(metadata.get("event_severity"), default=-1.0)
@@ -147,6 +158,7 @@ class ChromaStore:
             return cls._clamp(explicit, 0.0, 1.0)
         return 0.2
 
+    # Compute base importance weight from features.
     def _initial_weight(self, text: str, metadata: dict[str, Any], emotion_intensity: float) -> float:
         base_importance = self._safe_float(metadata.get("importance_score"), default=0.6)
         info = self._estimate_information_density(text)
@@ -154,6 +166,7 @@ class ChromaStore:
         w0 = 0.45 * base_importance + 0.25 * info + 0.2 * severity + 0.1 * emotion_intensity
         return self._clamp(w0, 0.0, 2.0)
 
+    # Choose decay rate based on emotion profile.
     def _decay_lambda(self, emotion_tag: str, emotion_intensity: float) -> float:
         base = max(1e-4, float(settings.memory_decay_lambda_base))
         tag = str(emotion_tag or "neutral").lower()
@@ -165,6 +178,7 @@ class ChromaStore:
             return max(1e-4, base * float(settings.memory_decay_positive_lambda_multiplier))
         return base
 
+    # Apply heuristic bonuses for certain sources or topics.
     def _rule_bonus(self, metadata: dict[str, Any], query: str) -> float:
         bonus = 0.0
         src = str(metadata.get("source_event", metadata.get("source", ""))).lower()
@@ -182,6 +196,7 @@ class ChromaStore:
                 bonus += 0.08
         return self._clamp(bonus, 0.0, 0.25)
 
+    # Combine weights, decay, and bonuses into importance score.
     def _effective_importance(
         self,
         text: str,
@@ -200,6 +215,7 @@ class ChromaStore:
         bonus = self._rule_bonus(enriched, query)
         return self._clamp(wt + bonus, 0.0, 2.0)
 
+    # Convert vector distance into a semantic score.
     @staticmethod
     def _semantic_score(distance: Any, rank: int) -> float:
         if distance is None:
@@ -207,11 +223,13 @@ class ChromaStore:
         d = max(0.0, ChromaStore._safe_float(distance, default=1.0))
         return 1.0 / (1.0 + d)
 
+    # Compute recency score from created_at metadata.
     def _recency_score(self, metadata: dict[str, Any], *, now: datetime | None = None) -> float:
         hours = self._hours_since(metadata.get("created_at"), now=now)
         decay = max(1e-4, float(settings.memory_hybrid_recency_lambda))
         return self._clamp(math.exp(-decay * hours), 0.0, 1.0)
 
+    # Combine semantic, recency, and importance into a ranked list.
     def _hybrid_rank(
         self,
         *,
@@ -261,6 +279,7 @@ class ChromaStore:
         )
         return ranked
 
+    # Search persona examples by query.
     def search_persona(self, query: str, top_k: int = 4) -> list[str]:
         try:
             result = self.persona.query(query_texts=[query], n_results=top_k)
@@ -272,6 +291,7 @@ class ChromaStore:
             logger.warning("persona retrieval failed: %s", exc)
             return []
 
+    # Add long-term notes to vector storage with metadata.
     def add_long_term_notes(
         self,
         notes: list[str],
@@ -315,6 +335,7 @@ class ChromaStore:
             logger.warning("long-term memory add failed: %s", exc)
             return 0
 
+    # Retrieve long-term notes using hybrid ranking.
     def search_long_term(self, query: str, top_k: int = 4) -> list[str]:
         q = str(query).strip()
         if not q:

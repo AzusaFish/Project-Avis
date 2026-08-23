@@ -55,14 +55,17 @@ class UpdateConfigReq(BaseModel):
     items: dict[str, Any] = Field(default_factory=dict)
 
 
+# Build a standard API response envelope.
 def ok(data: dict | list | str | int | float | bool | None = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}
 
 
+# Resolve the project-level config.yaml path.
 def _project_config_path() -> Path:
     return Path(__file__).resolve().parents[3] / "config.yaml"
 
 
+# Normalize config values into flat text.
 def _format_config_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -71,6 +74,7 @@ def _format_config_value(value: Any) -> str:
     return str(value)
 
 
+# Read flat key-value config entries from config.yaml.
 def _read_flat_config() -> dict[str, str]:
     path = _project_config_path()
     if not path.exists():
@@ -96,6 +100,7 @@ def _read_flat_config() -> dict[str, str]:
     return data
 
 
+# Apply config updates to config.yaml and environment.
 def _apply_flat_config_updates(updates: dict[str, Any]) -> dict[str, object]:
 
     path = _project_config_path()
@@ -143,6 +148,7 @@ def _apply_flat_config_updates(updates: dict[str, Any]) -> dict[str, object]:
     }
 
 
+# Probe a TCP endpoint for basic connectivity.
 async def _tcp_probe(url: str, timeout_sec: float = 0.8) -> dict[str, object]:
     import asyncio
 
@@ -158,6 +164,7 @@ async def _tcp_probe(url: str, timeout_sec: float = 0.8) -> dict[str, object]:
         return {"ok": False, "host": host, "port": port, "error": str(exc)}
 
 
+# Resolve SQLite store from app state.
 def _get_sqlite(request: Request) -> SQLiteStore:
     sqlite = getattr(request.app.state, "sqlite", None)
     if sqlite is None:
@@ -165,6 +172,7 @@ def _get_sqlite(request: Request) -> SQLiteStore:
     return sqlite
 
 
+# Resolve event bus from app state.
 def _get_bus(request: Request):
     bus = getattr(request.app.state, "bus", None)
     if bus is None:
@@ -172,6 +180,7 @@ def _get_bus(request: Request):
     return bus
 
 
+# Resolve agent from app state.
 def _get_agent(request: Request):
     agent = getattr(request.app.state, "agent", None)
     if agent is None:
@@ -179,6 +188,7 @@ def _get_agent(request: Request):
     return agent
 
 
+# Resolve memory reflector from app state.
 def _get_reflector(request: Request):
     reflector = getattr(request.app.state, "reflector", None)
     if reflector is None:
@@ -186,16 +196,19 @@ def _get_reflector(request: Request):
     return reflector
 
 
+# Basic health endpoint.
 @router.get("/health")
 async def health() -> dict:
     return ok({"status": "ok"})
 
 
+# Return the current local time payload.
 @router.get("/time/now")
 async def time_now() -> dict:
     return ok(now_payload())
 
 
+# Health endpoint for dependency checks.
 @router.get("/health/deps")
 async def health_deps() -> dict:
     provider = settings.llm_provider.lower().strip()
@@ -227,6 +240,7 @@ async def health_deps() -> dict:
     return ok({"status": status, "checks": checks})
 
 
+# Publish a text chat message.
 @router.post("/chat/text")
 async def chat_text(req: TextReq, request: Request) -> dict:
     bus = _get_bus(request)
@@ -234,6 +248,7 @@ async def chat_text(req: TextReq, request: Request) -> dict:
     return ok({"queued": True})
 
 
+# Publish microphone audio as an audio chunk.
 @router.post("/chat/microphone")
 async def chat_microphone(
     request: Request,
@@ -263,6 +278,7 @@ async def chat_microphone(
     return ok({"queued": True, "sample_rate": sample_rate, "bytes": len(pcm)})
 
 
+# Inject a text event into the agent bus.
 @router.post("/control/inject-text")
 async def control_inject_text(req: InjectTextReq, request: Request) -> dict:
     bus = _get_bus(request)
@@ -270,12 +286,14 @@ async def control_inject_text(req: InjectTextReq, request: Request) -> dict:
     return ok({"queued": True})
 
 
+# Return current queue size for the event bus.
 @router.get("/control/queue-size")
 async def control_queue_size(request: Request) -> dict:
     bus = _get_bus(request)
     return ok({"queue_size": bus.qsize()})
 
 
+# List memory dialogue entries.
 @router.get("/memory/dialogues")
 async def list_memory(
     request: Request,
@@ -306,6 +324,7 @@ async def list_memory(
     return ok({"total": total, "limit": limit, "offset": offset, "items": rows})
 
 
+# Update a memory dialogue entry.
 @router.patch("/memory/dialogues/{memory_id}")
 async def update_memory(memory_id: int, req: UpdateMemoryReq, request: Request) -> dict:
     sqlite = _get_sqlite(request)
@@ -315,6 +334,7 @@ async def update_memory(memory_id: int, req: UpdateMemoryReq, request: Request) 
     return ok({"updated": True, "id": memory_id})
 
 
+# Delete a memory dialogue entry.
 @router.delete("/memory/dialogues/{memory_id}")
 async def delete_memory(memory_id: int, request: Request) -> dict:
     sqlite = _get_sqlite(request)
@@ -324,6 +344,7 @@ async def delete_memory(memory_id: int, request: Request) -> dict:
     return ok({"deleted": True, "id": memory_id})
 
 
+# Clear memory dialogue entries.
 @router.post("/memory/dialogues/clear")
 async def clear_memory(req: ClearMemoryReq, request: Request) -> dict:
     sqlite = _get_sqlite(request)
@@ -331,12 +352,14 @@ async def clear_memory(req: ClearMemoryReq, request: Request) -> dict:
     return ok({"deleted": deleted, "role": req.role})
 
 
+# Return the current flat config.
 @router.get("/config")
 async def get_config() -> dict:
     data = _read_flat_config()
     return ok({"path": str(_project_config_path()), "items": data})
 
 
+# Patch config.yaml with provided items.
 @router.patch("/config")
 async def patch_config(req: UpdateConfigReq) -> dict:
     if not req.items:
@@ -345,6 +368,7 @@ async def patch_config(req: UpdateConfigReq) -> dict:
     return ok(result)
 
 
+# Return a debug snapshot of system state.
 @router.get("/debug/snapshot")
 async def debug_snapshot(request: Request) -> dict:
     bus = _get_bus(request)
@@ -413,6 +437,7 @@ async def debug_snapshot(request: Request) -> dict:
     )
 
 
+# Return last LLM request/response snapshot.
 @router.get("/debug/llm-io")
 async def debug_llm_io(request: Request) -> dict:
     agent = _get_agent(request)
@@ -429,6 +454,7 @@ async def debug_llm_io(request: Request) -> dict:
     )
 
 
+# Return debug information about memory scoring and decay.
 @router.get("/debug/memory-mechanism")
 async def debug_memory_mechanism(request: Request) -> dict:
     sqlite = _get_sqlite(request)

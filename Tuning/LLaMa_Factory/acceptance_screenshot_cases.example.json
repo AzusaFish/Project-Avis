@@ -1,0 +1,12 @@
+[
+  {
+    "name": "desktop_code_window",
+    "prompt": "Please call desktop_screenshot tool now and describe what is currently visible on my desktop, focusing on code/editor content.",
+    "followup_prompt": "Using the same screenshot as just now, summarize the key visible facts in one concise sentence. Keep facts consistent.",
+    "expected_keywords": [
+      "vscode",
+      "python",
+      "yaml"
+    ]
+  }
+]

@@ -26,6 +26,7 @@ class ClearMemoryReq(BaseModel):
     role: str | None = Field(default=None, pattern="^(user|assistant|system|tool)?$")
 
 
+# Resolve the SQLite store from app state.
 def _get_sqlite(request: Request) -> SQLiteStore:
     sqlite = getattr(request.app.state, "sqlite", None)
     if sqlite is None:
@@ -33,6 +34,7 @@ def _get_sqlite(request: Request) -> SQLiteStore:
     return sqlite
 
 
+# List memory entries with filters and pagination.
 @router.get("/list")
 async def list_memory(
     request: Request,
@@ -63,6 +65,7 @@ async def list_memory(
     return {"total": total, "limit": limit, "offset": offset, "items": rows}
 
 
+# Update a memory entry by id.
 @router.patch("/{memory_id}")
 async def update_memory(memory_id: int, req: UpdateMemoryReq, request: Request) -> dict[str, object]:
     sqlite = _get_sqlite(request)
@@ -72,6 +75,7 @@ async def update_memory(memory_id: int, req: UpdateMemoryReq, request: Request) 
     return {"ok": True, "id": memory_id}
 
 
+# Delete a memory entry by id.
 @router.delete("/{memory_id}")
 async def delete_memory(memory_id: int, request: Request) -> dict[str, object]:
     sqlite = _get_sqlite(request)
@@ -81,6 +85,7 @@ async def delete_memory(memory_id: int, request: Request) -> dict[str, object]:
     return {"ok": True, "id": memory_id}
 
 
+# Clear memory entries, optionally by role.
 @router.post("/clear")
 async def clear_memory(req: ClearMemoryReq, request: Request) -> dict[str, object]:
     sqlite = _get_sqlite(request)

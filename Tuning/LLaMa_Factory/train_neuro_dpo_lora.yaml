@@ -10,7 +10,7 @@ finetuning_type: lora
 lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
 quantization_bit: 4
 pref_loss: sigmoid
-pref_beta: 0.1
+pref_beta: 0.03
 
 ### dataset
 dataset: neuro_uncensored_dpo_en
@@ -32,8 +32,8 @@ save_total_limit: 3
 ### train
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 48
-learning_rate: 2e-06
-num_train_epochs: 1.0
+learning_rate: 8e-07
+num_train_epochs: 0.4
 lr_scheduler_type: cosine
 warmup_ratio: 0.05
 bf16: true

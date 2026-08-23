@@ -22,11 +22,13 @@ from app.core.config import settings
 router = APIRouter()
 
 
+# Basic health endpoint.
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Probe a TCP endpoint for basic connectivity.
 async def _tcp_probe(url: str, timeout_sec: float = 0.6) -> dict[str, str | bool | int]:
     parsed = urlparse(url)
     host = parsed.hostname or "127.0.0.1"
@@ -41,6 +43,7 @@ async def _tcp_probe(url: str, timeout_sec: float = 0.6) -> dict[str, str | bool
         return {"ok": False, "host": host, "port": port, "error": str(exc)}
 
 
+# Health endpoint for external dependencies and paths.
 @router.get("/health/deps")
 async def health_deps() -> dict:
     provider = settings.llm_provider.lower().strip()

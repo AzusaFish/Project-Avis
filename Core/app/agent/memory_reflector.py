@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryReflector:
+    # Initialize the reflector with memory access and LLM client.
     def __init__(self, memory: MemoryFacade, llm: LLMRouter) -> None:
         self.memory = memory
         self.llm = llm
@@ -35,9 +36,11 @@ class MemoryReflector:
             "last_error": "",
         }
 
+    # Signal the background loop to stop.
     def stop(self) -> None:
         self._running = False
 
+    # Run periodic scoring and reflection until stopped.
     async def run_forever(self) -> None:
         self._running = True
         logger.info("memory reflector started")
@@ -49,6 +52,7 @@ class MemoryReflector:
                 logger.exception("memory reflector tick failed")
             await asyncio.sleep(max(10, int(settings.memory_reflect_poll_sec)))
 
+    # Score and annotate pending short-term memories in batches.
     async def _score_short_term_once(self) -> None:
         self._score_debug.update(
             {
@@ -116,6 +120,7 @@ class MemoryReflector:
             logger.info("memory llm scoring updated %s short-term rows", updated)
         self._score_debug["last_updated"] = int(updated)
 
+    # Ask the LLM to assess importance and emotion for rows.
     async def _assess_short_term_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         max_text = max(80, int(getattr(settings, "memory_llm_score_max_text", 360)))
         payload_rows: list[dict[str, Any]] = []
@@ -182,9 +187,11 @@ class MemoryReflector:
             out.append(item)
         return out
 
+    # Return a snapshot of the latest scoring debug info.
     def get_score_debug_state(self) -> dict[str, Any]:
         return dict(self._score_debug)
 
+    # Run a single reflection tick if thresholds are met.
     async def _tick_once(self) -> None:
         if not settings.memory_reflect_enabled:
             return
@@ -235,6 +242,7 @@ class MemoryReflector:
         if by_daily:
             await sqlite.set_meta("reflect_last_day", today)
 
+    # Summarize dialogue into compact long-term notes.
     async def _summarize_to_notes(self, rows: list[dict[str, Any]]) -> list[str]:
         transcript = []
         for r in rows:

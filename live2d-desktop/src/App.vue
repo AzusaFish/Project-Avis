@@ -41,7 +41,6 @@ const micSpeaking = ref(false) // 是否正在说话（用于 UI 指示）
 const MIC_SAMPLE_RATE = 16000
 const SILENCE_THRESHOLD = 0.0035 // 前端仅用于 UI/interrupt 的 RMS 阈值；更低以适配小音量麦克风
 const SILENCE_DURATION = 600    // 静默超时
-const MIC_STREAM_INTERVAL_MS = 80
 const MIC_INPUT_GAIN = 2.8      // 低音量补偿；最终发送前会再做 [-1,1] 裁剪
 const MIC_RMS_LOG_INTERVAL_MS = 2500
 
@@ -53,7 +52,6 @@ let hasSpeech = false
 let silenceTimer: ReturnType<typeof setTimeout> | null = null
 let interruptSent = false
 let micFrameSeq = 0
-let lastMicSendTs = 0
 let lastMicRmsLogTs = 0
 
 let audioWs: WebSocket | null = null
@@ -69,7 +67,7 @@ let audioUnlockBound = false
 let assistantStreamPrevText = ''
 let ttsPendingStreamText = ''
 
-const STREAM_TTS_CHUNK_CHARS = 120
+const STREAM_TTS_CHUNK_CHARS = 240
 const STREAM_TTS_MIN_CHARS = 24
 
 function normalizeAudioOutputName(device: MediaDeviceInfo): string {
@@ -370,11 +368,7 @@ function floatToPcm16Base64(samples: Float32Array): string {
 
 function sendMicChunk(samples: Float32Array) {
   // 发送一帧麦克风数据到后端音频 WS。
-  // 限速发送：减少网络压力与后端排队。
   if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return
-  const now = Date.now()
-  if (now - lastMicSendTs < MIC_STREAM_INTERVAL_MS) return
-  lastMicSendTs = now
   const payload = {
     type: 'audio',
     sample_rate: Math.round(micAudioCtx?.sampleRate || MIC_SAMPLE_RATE),
@@ -529,6 +523,37 @@ function toggleMic() {
 // ===== 麦克风录音结束 =====
 
 // 动作名 → Live2D 表情索引映射（可根据模型实际表情调整）
+const ACTION_ALIAS_TO_CANONICAL: Record<string, string> = {
+  neutral: '普通',
+  normal: '普通',
+  idle: '普通',
+  '普通': '普通',
+  happy: '开心',
+  smile: '开心',
+  '开心': '开心',
+  sad: '难过',
+  '难过': '难过',
+  angry: '生气',
+  mad: '生气',
+  '生气': '生气',
+  thinking: '得意',
+  think: '得意',
+  '得意': '得意',
+  surprised: '惊讶',
+  surprise: '惊讶',
+  wow: '惊讶',
+  '惊讶': '惊讶',
+  nod: '点头',
+  headnod: '点头',
+  '点头': '点头',
+  shake: '摇头',
+  headshake: '摇头',
+  '摇头': '摇头',
+  wave: '招手',
+  hello: '招手',
+  '招手': '招手',
+}
+
 const EXPRESSION_MAP: Record<string, number> = {
   '开心': 1,
   '难过': 2,
@@ -545,17 +570,69 @@ const MOTION_MAP: Record<string, string> = {
   '招手': 'TapBody',
 }
 
-function handleLive2dAction(actionName: string) {
-  // 把后端动作名映射为具体表情或 motion。
-  if (!live2dRef.value) return
+function normalizeActionName(raw: unknown): string {
+  const text = String(raw ?? '').trim()
+  if (!text) return ''
+  const key = text.toLowerCase().replace(/[\s_-]+/g, '')
+  return ACTION_ALIAS_TO_CANONICAL[key] ?? text
+}
+
+function parseMotionIndex(raw: unknown): number | undefined {
+  const value = Number(raw)
+  if (!Number.isFinite(value)) return undefined
+  return Math.trunc(value)
+}
+
+function applyActionName(actionName: string) {
+  if (!live2dRef.value || !actionName) return
   if (actionName in EXPRESSION_MAP) {
     live2dRef.value.setExpression(EXPRESSION_MAP[actionName])
-  } else if (actionName in MOTION_MAP) {
-    live2dRef.value.playMotion(MOTION_MAP[actionName])
-  } else {
-    // 尝试直接当表情名用
-    live2dRef.value.setExpression(actionName)
+    return
   }
+  if (actionName in MOTION_MAP) {
+    live2dRef.value.playMotion(MOTION_MAP[actionName])
+    return
+  }
+  live2dRef.value.setExpression(actionName)
+}
+
+function handleLive2dAction(payload: unknown) {
+  // 优先级：expression > motion_group > action_name。
+  if (!live2dRef.value) return
+
+  if (typeof payload === 'string') {
+    applyActionName(normalizeActionName(payload))
+    return
+  }
+
+  if (!payload || typeof payload !== 'object') return
+  const data = payload as Record<string, unknown>
+
+  const expressionRaw = data.expression
+  if (typeof expressionRaw === 'number') {
+    live2dRef.value.setExpression(expressionRaw)
+    return
+  }
+  if (typeof expressionRaw === 'string' && expressionRaw.trim()) {
+    const text = expressionRaw.trim()
+    if (/^[+-]?\d+$/.test(text)) {
+      live2dRef.value.setExpression(Number.parseInt(text, 10))
+    } else {
+      live2dRef.value.setExpression(normalizeActionName(text))
+    }
+    return
+  }
+
+  const motionRaw = String(data.motion_group ?? data.motion ?? '').trim()
+  if (motionRaw) {
+    const normalizedMotion = normalizeActionName(motionRaw)
+    const motionGroup = MOTION_MAP[normalizedMotion] ?? motionRaw
+    live2dRef.value.playMotion(motionGroup, parseMotionIndex(data.motion_index ?? data.index))
+    return
+  }
+
+  const actionName = normalizeActionName(data.action_name ?? data.action ?? '')
+  applyActionName(actionName)
 }
 
 let ws: WebSocket | null = null
@@ -605,11 +682,8 @@ function connectWs() {
           if (botClearTimer) clearTimeout(botClearTimer)
           botClearTimer = setTimeout(() => { botText.value = '' }, 12000)
         } else if (msg.action === 'live2d_action' && msg.data) {
-          const actionName = msg.data.action_name
-          if (actionName) {
-            console.log('[WS] Live2D action:', actionName)
-            handleLive2dAction(actionName)
-          }
+          console.log('[WS] Live2D action:', msg.data)
+          handleLive2dAction(msg.data)
         } else if (msg.action === 'llm_debug' && msg.data) {
           const stage = String(msg.data.stage || 'unknown')
           console.groupCollapsed(`[LLM DEBUG] ${stage}`)

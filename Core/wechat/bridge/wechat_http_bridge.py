@@ -64,6 +64,7 @@ except Exception:
     GEWECHAT_ATS = []
 
 
+# Normalize a value into a trimmed string.
 def _as_str(value: Any) -> str:
     if value is None:
         return ""
@@ -72,6 +73,7 @@ def _as_str(value: Any) -> str:
     return str(value).strip()
 
 
+# Safely traverse nested dict paths.
 def _dig(payload: Any, *path: str) -> Any:
     cur = payload
     for key in path:
@@ -81,6 +83,7 @@ def _dig(payload: Any, *path: str) -> Any:
     return cur
 
 
+# Return the first non-empty string from candidates.
 def _first_non_empty(*values: Any) -> str:
     for value in values:
         s = _as_str(value)
@@ -89,6 +92,7 @@ def _first_non_empty(*values: Any) -> str:
     return ""
 
 
+# Convert to float with a default fallback.
 def _as_float(value: Any, default: float) -> float:
     try:
         return float(value)
@@ -96,10 +100,12 @@ def _as_float(value: Any, default: float) -> float:
         return default
 
 
+# Serialize payload with stable ordering for signing.
 def _canonical_json(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+# Compute secure relay HMAC signature.
 def _secure_relay_signature(payload: Any, timestamp: str, nonce: str) -> str:
     if not SECURE_RELAY_SHARED_SECRET:
         return ""
@@ -108,6 +114,7 @@ def _secure_relay_signature(payload: Any, timestamp: str, nonce: str) -> str:
     return hmac.new(SECURE_RELAY_SHARED_SECRET.encode("utf-8"), sign_source, hashlib.sha256).hexdigest()
 
 
+# Build signed headers for secure relay requests.
 def _build_secure_relay_headers(payload: Any) -> dict[str, str]:
     timestamp = str(int(time.time()))
     nonce = secrets.token_hex(16)
@@ -119,6 +126,7 @@ def _build_secure_relay_headers(payload: Any) -> dict[str, str]:
     }
 
 
+# Verify secure relay signature and time window.
 def _verify_secure_relay_signature(payload: Any, timestamp: str, nonce: str, signature: str) -> tuple[bool, str]:
     if not SECURE_RELAY_SHARED_SECRET:
         return False, "missing shared secret"
@@ -156,6 +164,7 @@ _itchat_last_event_ts = 0.0
 _runtime_loop: asyncio.AbstractEventLoop | None = None
 
 
+# Initialize WCFerry client if configured.
 def _try_init_wcf_client() -> Any | None:
     if WECHAT_BRIDGE_PROVIDER != "wcferry":
         return None
@@ -174,6 +183,7 @@ def _try_init_wcf_client() -> Any | None:
         return None
 
 
+# Initialize itchat client and background thread.
 def _try_init_itchat_client(loop: asyncio.AbstractEventLoop) -> tuple[Any | None, threading.Thread | None]:
     if WECHAT_BRIDGE_PROVIDER != "itchat":
         return None, None
@@ -188,6 +198,7 @@ def _try_init_itchat_client(loop: asyncio.AbstractEventLoop) -> tuple[Any | None
     global _runtime_loop
     _runtime_loop = loop
 
+    # Handle inbound itchat text messages.
     @itchat.msg_register([TEXT], isFriendChat=True, isGroupChat=True, isMpChat=False)
     def _on_text_msg(msg: dict[str, Any]) -> None:
         text = msg.get("Text")
@@ -209,6 +220,7 @@ def _try_init_itchat_client(loop: asyncio.AbstractEventLoop) -> tuple[Any | None
         except Exception as exc:
             logger.warning("itchat enqueue failed: %s", exc)
 
+    # Run the itchat login loop in a dedicated thread.
     def _run() -> None:
         global _itchat_ready, _itchat_state, _itchat_last_error, _itchat_last_event_ts
         while True:
@@ -257,6 +269,7 @@ app.add_middleware(
 )
 
 
+# Normalize inbound message to bridge contract.
 def _normalize_inbound(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize one inbound message shape to bridge contract."""
     text = _first_non_empty(
@@ -312,6 +325,7 @@ def _normalize_inbound(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+# Extract messages from supported payload shapes.
 def _extract_messages(payload: Any) -> list[dict[str, Any]]:
     """Extract candidate message list from common payload structures."""
     if isinstance(payload, list):
@@ -341,6 +355,7 @@ def _extract_messages(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+# Normalize and enqueue inbound messages.
 async def _enqueue_messages(raw_messages: list[dict[str, Any]]) -> int:
     """Normalize and enqueue inbound messages."""
     normalized = []
@@ -356,6 +371,7 @@ async def _enqueue_messages(raw_messages: list[dict[str, Any]]) -> int:
     return len(normalized)
 
 
+# Poll upstream endpoint for inbound messages.
 async def _upstream_poll_loop() -> None:
     """Optional task: poll upstream endpoint and enqueue inbound messages."""
     if not UPSTREAM_POLL_URL:
@@ -378,6 +394,7 @@ async def _upstream_poll_loop() -> None:
             await asyncio.sleep(UPSTREAM_POLL_INTERVAL_SEC)
 
 
+# Normalize WCFerry inbound message shape.
 def _normalize_wcf_inbound(raw: Any) -> dict[str, Any] | None:
     text = _as_str(getattr(raw, "content", ""))
     if not text:
@@ -402,6 +419,7 @@ def _normalize_wcf_inbound(raw: Any) -> dict[str, Any] | None:
     }
 
 
+# Poll WCFerry for inbound messages.
 async def _wcf_poll_loop() -> None:
     if _wcf_client is None:
         return
@@ -421,6 +439,7 @@ async def _wcf_poll_loop() -> None:
             await asyncio.sleep(0.5)
 
 
+# Bridge startup hook.
 async def _startup() -> None:
     """Bridge startup hook."""
     global _poll_task, _wcf_task, _wcf_client, _itchat_client, _itchat_thread
@@ -432,6 +451,7 @@ async def _startup() -> None:
     _itchat_client, _itchat_thread = _try_init_itchat_client(asyncio.get_running_loop())
 
 
+# Bridge shutdown hook.
 async def _shutdown() -> None:
     """Bridge shutdown hook."""
     global _poll_task, _wcf_task
@@ -449,6 +469,7 @@ async def _shutdown() -> None:
     _wcf_task = None
 
 
+# Status endpoint for the bridge.
 @app.get("/")
 async def root() -> dict[str, Any]:
     """Basic status endpoint."""
@@ -476,6 +497,7 @@ async def root() -> dict[str, Any]:
     }
 
 
+# Ingest inbound messages from external adapters.
 @app.post("/push")
 @app.post("/receive")
 @app.post("/ingest")
@@ -492,6 +514,7 @@ async def push(payload: Any = Body(default={})) -> dict[str, Any]:
     return {"ok": True, "accepted": count}
 
 
+# Ingest signed messages via secure relay.
 @app.post("/secure-relay/ingest")
 async def secure_relay_ingest(
     payload: Any = Body(default={}),
@@ -512,6 +535,7 @@ async def secure_relay_ingest(
     return {"ok": True, "accepted": count}
 
 
+# Poll and drain inbound message queue.
 @app.get("/poll")
 async def poll(
     limit: int = Query(default=20, ge=1, le=200),
@@ -531,6 +555,7 @@ async def poll(
         await asyncio.sleep(0.1)
 
 
+# Send a message via the configured provider.
 @app.post("/send")
 async def send(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Tool-facing send endpoint: forward upstream or keep local outbox log."""
@@ -671,6 +696,7 @@ async def send(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     return {"ok": True, "message": "queued locally", "id": record["id"]}
 
 
+# List recently sent outbound messages.
 @app.get("/sent")
 async def sent(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     """Debug endpoint: inspect latest outbound records."""
@@ -678,12 +704,14 @@ async def sent(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     return {"items": values, "count": len(values)}
 
 
+# Return inbound/outbound queue status.
 @app.get("/queue")
 async def queue_state() -> dict[str, Any]:
     """Debug endpoint: inspect queue lengths."""
     return {"inbox_size": len(_inbox), "outbox_size": len(_outbox)}
 
 
+# Handle callbacks from Gewechat bridge.
 @app.post("/gewechat/callback")
 async def gewechat_callback(payload: Any = Body(default={})) -> dict[str, Any]:
     """Gewechat callback alias: forwards payload to the common ingest path."""

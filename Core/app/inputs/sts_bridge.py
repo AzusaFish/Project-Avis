@@ -22,6 +22,7 @@ from app.core.events import Event, EventType
 logger = logging.getLogger(__name__)
 
 
+# Poll the STS bridge and publish game state events.
 async def sts_state_watcher(bus: EventBus) -> None:
     async with httpx.AsyncClient(timeout=8.0) as client:
         while True:

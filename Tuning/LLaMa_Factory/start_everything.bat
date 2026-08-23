@@ -8,6 +8,7 @@ echo [INFO] start at %DATE% %TIME% > "%LOG_FILE%"
 set "DRY_RUN=0"
 set "HOLD_ON_ERROR=1"
 set "EXPORT_ONLY=0"
+set "RUN_ACCEPTANCE=1"
 set "DEPLOY_DIR_OVERRIDE="
 set "OUTPUT_STEM_OVERRIDE="
 
@@ -25,6 +26,11 @@ if /I "%~1"=="--no-pause" (
 )
 if /I "%~1"=="--export-only" (
   set "EXPORT_ONLY=1"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--skip-acceptance" (
+  set "RUN_ACCEPTANCE=0"
   shift
   goto parse_args
 )
@@ -53,6 +59,20 @@ goto parse_args
 
 :args_done
 
+set "RUN_LOCK_DIR=%~dp0.start_everything.lock"
+2>nul mkdir "%RUN_LOCK_DIR%"
+if not %ERRORLEVEL%==0 (
+  echo [ERROR] Another start_everything.bat instance appears to be running.
+  echo [ERROR] Lock dir exists: %RUN_LOCK_DIR%
+  exit /b 1
+)
+
+powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'llamafactory\\.cli train' }; if($p){ $p | ForEach-Object { Write-Output ('[ERROR] Existing train process PID=' + $_.ProcessId) }; exit 1 }"
+if not %ERRORLEVEL%==0 (
+  if exist "%RUN_LOCK_DIR%" rmdir "%RUN_LOCK_DIR%" >nul 2>nul
+  exit /b 1
+)
+
 set "LF_ENV=%~dp0.conda-lf"
 
 set "MODEL_NAME_OR_PATH=InternVL3_5-14B-HF"
@@ -61,7 +81,7 @@ set "DPO_TEMPLATE=intern_vl"
 set "VISION_SUBSET_SIZE=4000"
 set "VISION_DOWNLOAD_WORKERS=24"
 set "VISION_MAX_RETRIES=2"
-set "DPO_LIMIT=2500"
+set "DPO_LIMIT=800"
 set "SFT_OUT=outputs/neuro_sft_lora_internvl35_14b"
 set "DPO_OUT=outputs/neuro_dpo_lora_internvl35_14b"
 set "EXPORTS_DIR=exports/neuro_dpo"
@@ -100,6 +120,7 @@ echo [INFO] vision workers: %VISION_DOWNLOAD_WORKERS%
 echo [INFO] dpo limit: %DPO_LIMIT%
 echo [INFO] lf env: %LF_ENV%
 echo [INFO] export only: %EXPORT_ONLY%
+echo [INFO] run acceptance: %RUN_ACCEPTANCE%
 if defined OUTPUT_STEM_OVERRIDE echo [INFO] output stem override: %OUTPUT_STEM_OVERRIDE%
 if defined DEPLOY_DIR_OVERRIDE echo [INFO] deploy dir override: %DEPLOY_DIR_OVERRIDE%
 echo [INFO] hf cache root: %HF_CACHE_ROOT%
@@ -115,6 +136,7 @@ echo [INFO] log file: %LOG_FILE%
 >> "%LOG_FILE%" echo [INFO] dpo_limit=%DPO_LIMIT%
 >> "%LOG_FILE%" echo [INFO] lf_env=%LF_ENV%
 >> "%LOG_FILE%" echo [INFO] export_only=%EXPORT_ONLY%
+>> "%LOG_FILE%" echo [INFO] run_acceptance=%RUN_ACCEPTANCE%
 >> "%LOG_FILE%" echo [INFO] output_stem=%OUTPUT_STEM%
 >> "%LOG_FILE%" echo [INFO] run_stamp=%RUN_STAMP%
 >> "%LOG_FILE%" echo [INFO] hf_cache_root=%HF_CACHE_ROOT%
@@ -124,7 +146,7 @@ echo [INFO] log file: %LOG_FILE%
 if "%DRY_RUN%"=="1" (
   echo [DRY] call :ensure_env
   if "%EXPORT_ONLY%"=="0" (
-    echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python prepare_neuro_lf_data.py %PREP_ARGS%
+    echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python train.py %PREP_ARGS%
     echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python -m llamafactory.cli train train_neuro_sft_lora.yaml
     echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python -m llamafactory.cli train train_neuro_dpo_lora.yaml
   )
@@ -134,6 +156,10 @@ if "%DRY_RUN%"=="1" (
   echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python "%LLAMA_CPP_DIR%\convert_hf_to_gguf.py" "%MERGED_DIR%" --outfile "%GGUF_DIR%\mmproj-%OUTPUT_STEM%.F16.gguf" --outtype f16 --mmproj
   echo [DRY] "%LLAMA_CPP_DIR%\build\bin\Release\llama-quantize.exe" "%GGUF_DIR%\%OUTPUT_STEM%.F16.gguf" "%GGUF_DIR%\%OUTPUT_STEM%.Q4_K_M.gguf" Q4_K_M
   echo [DRY] copy gguf to "%DEPLOY_GGUF_DIR%"
+  if "%RUN_ACCEPTANCE%"=="1" (
+    echo [DRY] conda run -p "%LF_ENV%" --no-capture-output python post_train_acceptance.py --project-root ../.. --dpo-dataset datasets/neuro_uncensored_dpo_en.json --core-url http://127.0.0.1:8080 --output-dir acceptance_reports
+  )
+  if exist "%RUN_LOCK_DIR%" rmdir "%RUN_LOCK_DIR%" >nul 2>nul
   exit /b 0
 )
 
@@ -156,12 +182,12 @@ if not exist "%HF_HUB_CACHE%" mkdir "%HF_HUB_CACHE%"
 if not exist "%HF_DATASETS_CACHE%" mkdir "%HF_DATASETS_CACHE%"
 if not exist "%HF_ASSETS_CACHE%" mkdir "%HF_ASSETS_CACHE%"
 
-call conda run -p "%LF_ENV%" --no-capture-output python prepare_neuro_lf_data.py %PREP_ARGS%
+call conda run -p "%LF_ENV%" --no-capture-output python train.py %PREP_ARGS%
 if not %ERRORLEVEL%==0 (
-  call :fail "prepare_neuro_lf_data.py failed." %ERRORLEVEL%
+  call :fail "train.py failed." %ERRORLEVEL%
 )
 
-call conda run -p "%LF_ENV%" --no-capture-output python -c "import json,sys; r=json.load(open('datasets/prepare_report.json','r',encoding='utf-8')); target=int(r.get('stats',{}).get('vision_target',0)); kept=int(r.get('vision_records',0)); enabled=bool(r.get('vision_in_sft_enabled')); print(f'[CHECK] vision_in_sft_enabled={enabled}, vision_records={kept}, vision_target={target}'); sys.exit(0 if enabled and kept>=target and target>0 else 1)"
+call conda run -p "%LF_ENV%" --no-capture-output python check_vision_subset.py datasets/prepare_report.json
 if not %ERRORLEVEL%==0 (
   call :fail "Vision subset was not included in SFT. Check sft-template/intern_vl and prepare report." %ERRORLEVEL%
 )
@@ -245,12 +271,27 @@ if not %ERRORLEVEL%==0 call :fail "Failed to copy Q4 GGUF to deploy dir." %ERROR
 copy /Y "%GGUF_DIR%\mmproj-%OUTPUT_STEM%.F16.gguf" "%DEPLOY_GGUF_DIR%\" >nul
 if not %ERRORLEVEL%==0 call :fail "Failed to copy mmproj GGUF to deploy dir." %ERRORLEVEL%
 
+if "%RUN_ACCEPTANCE%"=="1" (
+  echo [INFO] Running post-training acceptance checks...
+  set "ACCEPT_ARGS=--project-root ../.. --dpo-dataset datasets/neuro_uncensored_dpo_en.json --core-url http://127.0.0.1:8080 --output-dir acceptance_reports"
+  if exist "%~dp0acceptance_screenshot_cases.json" (
+    set "ACCEPT_ARGS=!ACCEPT_ARGS! --screenshot-cases acceptance_screenshot_cases.json"
+  )
+  call conda run -p "%LF_ENV%" --no-capture-output python post_train_acceptance.py !ACCEPT_ARGS!
+  if not %ERRORLEVEL%==0 (
+    echo [WARN] Post-training acceptance reported issues. Check acceptance_reports\acceptance_*.json
+  ) else (
+    echo [OK] Post-training acceptance passed.
+  )
+)
+
 echo [OK] Training pipeline completed.
 echo [OUT] SFT adapter: %~dp0%SFT_OUT%
 echo [OUT] DPO adapter: %~dp0%DPO_OUT%
 echo [OUT] Q4 GGUF: %GGUF_DIR%\%OUTPUT_STEM%.Q4_K_M.gguf
 echo [OUT] MMPROJ GGUF: %GGUF_DIR%\mmproj-%OUTPUT_STEM%.F16.gguf
 echo [OUT] Deployed: %DEPLOY_GGUF_DIR%
+if exist "%RUN_LOCK_DIR%" rmdir "%RUN_LOCK_DIR%" >nul 2>nul
 exit /b 0
 
 :ensure_env
@@ -258,6 +299,25 @@ where conda >nul 2>nul
 if not %ERRORLEVEL%==0 (
   echo [ERROR] conda not found in PATH.
   exit /b 1
+)
+
+if exist "%LF_ENV%\python.exe" (
+  for %%I in ("%LF_ENV%\python.exe") do set "PY_EXE_SIZE=%%~zI"
+  if "!PY_EXE_SIZE!"=="0" (
+    echo [WARN] Detected corrupted env python.exe size 0 bytes: %LF_ENV%\python.exe
+    echo [INFO] Recreating env: %LF_ENV%
+    rmdir /s /q "%LF_ENV%"
+    if exist "%LF_ENV%" exit /b 1
+  )
+)
+
+if exist "%LF_ENV%\python.exe" (
+  "%LF_ENV%\python.exe" --version >nul 2>nul
+  if not !ERRORLEVEL!==0 (
+    echo [WARN] Existing env python.exe is not runnable. Recreating env: %LF_ENV%
+    rmdir /s /q "%LF_ENV%"
+    if exist "%LF_ENV%" exit /b 1
+  )
 )
 
 if exist "%LF_ENV%\python.exe" (
@@ -278,8 +338,19 @@ echo [INFO] Installing/upgrading training dependencies...
 call conda run -p "%LF_ENV%" --no-capture-output python -m pip install -U pip
 if not %ERRORLEVEL%==0 exit /b %ERRORLEVEL%
 
-call conda run -p "%LF_ENV%" --no-capture-output python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-if not %ERRORLEVEL%==0 exit /b %ERRORLEVEL%
+set "TORCH_CHANNEL_OK=0"
+for %%C in (cu130 cu129 cu128) do (
+  if "!TORCH_CHANNEL_OK!"=="0" (
+    echo [INFO] Trying PyTorch channel %%C ...
+    call conda run -p "%LF_ENV%" --no-capture-output python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/%%C
+    if !ERRORLEVEL! EQU 0 (
+      set "TORCH_CHANNEL_OK=1"
+      set "TORCH_CHANNEL=%%C"
+      echo [OK] PyTorch installed from %%C.
+    )
+  )
+)
+if not "!TORCH_CHANNEL_OK!"=="1" exit /b 1
 
 call conda run -p "%LF_ENV%" --no-capture-output python -m pip install llamafactory pandas pyarrow bitsandbytes timm
 if not %ERRORLEVEL%==0 exit /b %ERRORLEVEL%
@@ -298,5 +369,10 @@ echo [ERROR] Exit code: %EC%
 >> "%LOG_FILE%" echo [ERROR] %DATE% %TIME% %MSG%
 >> "%LOG_FILE%" echo [ERROR] Exit code: %EC%
 echo [INFO] failure log written: %LOG_FILE%
+if exist "%RUN_LOCK_DIR%" rmdir "%RUN_LOCK_DIR%" >nul 2>nul
 if "%HOLD_ON_ERROR%"=="1" pause
-exit /b %EC%
+set "FINAL_EXIT_CODE=%EC%"
+goto :__terminate_pipeline
+
+:__terminate_pipeline
+exit /b %FINAL_EXIT_CODE%

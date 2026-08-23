@@ -25,6 +25,7 @@ set "GGUF_N_GPU_LAYERS=99"
 set "GGUF_CTX=8192"
 set "GGUF_PORT=8081"
 set "LLAMA_SERVER_EXE="
+set "LLAMA_BIN_DIR="
 set "GGUF_MAIN_GPU=0"
 set "GGUF_CHAT_TEMPLATE=chatml"
 set "WECHAT_BRIDGE_PROVIDER=local"
@@ -43,10 +44,21 @@ set "STT_DATA_WS_URL=ws://127.0.0.1:8012"
 set "STT_BRIDGE_HOST=127.0.0.1"
 set "STT_BRIDGE_PORT=9000"
 set "STT_BRIDGE_CONTROL_TIMEOUT_SEC=0.2"
-set "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC=0.22"
-set "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC=2.0"
-set "STT_BRIDGE_CLEAR_BEFORE_FEED=false"
+set "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC=0.35"
+set "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC=3.0"
+set "STT_BRIDGE_FULL_SENTENCE_GRACE_SEC=0.45"
+set "STT_BRIDGE_CLEAR_BEFORE_FEED=true"
 set "STT_BRIDGE_STOP_AFTER_FEED=false"
+set "STT_SERVER_MODEL=base"
+set "STT_SERVER_LANGUAGE=zh"
+set "STT_SERVER_DEVICE=cpu"
+set "STT_SERVER_COMPUTE_TYPE=int8"
+set "STT_SERVER_WEBRTC_SENSITIVITY=2"
+set "STT_SERVER_SILERO_SENSITIVITY=0.4"
+set "STT_SERVER_POST_SPEECH_SILENCE_DURATION=0.2"
+set "STT_SERVER_MIN_LENGTH_OF_RECORDING=0"
+set "STT_SERVER_MIN_GAP_BETWEEN_RECORDINGS=0"
+set "STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE=0.2"
 
 call :load_config_defaults
 
@@ -98,6 +110,7 @@ set "CORE_DIR=%AI_ROOT%\Core"
 set "GPT_DIR=%AI_ROOT%\GPT-SoVITS-main\GPT-SoVITS-main"
 set "STT_DIR=%AI_ROOT%\RealtimeSTT-master\RealtimeSTT-master"
 set "UI_DIR=%AI_ROOT%\live2d-desktop"
+if not defined LLAMA_BIN_DIR set "LLAMA_BIN_DIR=%AI_ROOT%\Tools\llama.cpp"
 set "RUNTIME_DATA_DIR=%TEMP%\project-avis-runtime"
 set "RUNTIME_CHROMA_DIR=%RUNTIME_DATA_DIR%\chroma"
 set "RUNTIME_SQLITE_PATH=%RUNTIME_DATA_DIR%\memory.db"
@@ -131,6 +144,17 @@ if defined GGUF_MODEL_PATH if "!GGUF_MODEL_PATH:~0,1!"=="." (
 if defined GGUF_MMPROJ_PATH if "!GGUF_MMPROJ_PATH:~0,1!"=="." (
   if "!GGUF_MMPROJ_PATH:~1,1!"=="/" set "GGUF_MMPROJ_PATH=%AI_ROOT%\!GGUF_MMPROJ_PATH:~2!"
   if "!GGUF_MMPROJ_PATH:~1,1!"=="\" set "GGUF_MMPROJ_PATH=%AI_ROOT%\!GGUF_MMPROJ_PATH:~2!"
+)
+if defined LLAMA_SERVER_EXE if "!LLAMA_SERVER_EXE:~0,1!"=="." (
+  if "!LLAMA_SERVER_EXE:~1,1!"=="/" set "LLAMA_SERVER_EXE=%AI_ROOT%\!LLAMA_SERVER_EXE:~2!"
+  if "!LLAMA_SERVER_EXE:~1,1!"=="\" set "LLAMA_SERVER_EXE=%AI_ROOT%\!LLAMA_SERVER_EXE:~2!"
+)
+if defined LLAMA_BIN_DIR if "!LLAMA_BIN_DIR:~0,1!"=="." (
+  if "!LLAMA_BIN_DIR:~1,1!"=="/" set "LLAMA_BIN_DIR=%AI_ROOT%\!LLAMA_BIN_DIR:~2!"
+  if "!LLAMA_BIN_DIR:~1,1!"=="\" set "LLAMA_BIN_DIR=%AI_ROOT%\!LLAMA_BIN_DIR:~2!"
+)
+if defined LLAMA_SERVER_EXE if exist "%LLAMA_SERVER_EXE%\" (
+  if exist "%LLAMA_SERVER_EXE%\llama-server.exe" set "LLAMA_SERVER_EXE=%LLAMA_SERVER_EXE%\llama-server.exe"
 )
 
 if exist "%GGUF_MODEL_PATH%\" (
@@ -199,6 +223,10 @@ if /I "%WECHAT_BRIDGE_PROVIDER%"=="secure_relay" (
 )
 
 if /I "%LLM_PROVIDER%"=="gguf" (
+  if not defined LLAMA_SERVER_EXE if defined LLAMA_BIN_DIR if exist "%LLAMA_BIN_DIR%\llama-server.exe" (
+    set "LLAMA_SERVER_EXE=%LLAMA_BIN_DIR%\llama-server.exe"
+  )
+
   for /d %%D in ("%USERPROFILE%\.unsloth\llama.cpp\llama-b*-bin-win-vulkan-x64") do (
     if not defined LLAMA_SERVER_EXE if exist "%%~fD\llama-server.exe" set "LLAMA_SERVER_EXE=%%~fD\llama-server.exe"
   )
@@ -222,6 +250,8 @@ if /I "%LLM_PROVIDER%"=="gguf" (
     echo [HINT]   1. In PATH as llama-server.exe
     echo [HINT]   2. %USERPROFILE%\.unsloth\llama.cpp\llama-server.exe
     echo [HINT]   3. %USERPROFILE%\.unsloth\llama.cpp\build\bin\Release\llama-server.exe
+    echo [HINT]   4. config.yaml: LLAMA_SERVER_EXE: D:\Apps\llama.cpp\llama-server.exe
+    echo [HINT]   5. config.yaml: LLAMA_BIN_DIR: D:\Apps\llama.cpp
     exit /b 1
   )
 
@@ -302,11 +332,15 @@ if defined STT_SERVER_CMD (
 ) else (
   echo [INFO] RealtimeSTT launcher: python -m RealtimeSTT_server.stt_server
 )
+echo [INFO] RealtimeSTT model/lang: %STT_SERVER_MODEL% / %STT_SERVER_LANGUAGE%
+echo [INFO] RealtimeSTT vad: webrtc=%STT_SERVER_WEBRTC_SENSITIVITY% silero=%STT_SERVER_SILERO_SENSITIVITY%
+echo [INFO] RealtimeSTT silence: end_pause=%STT_SERVER_POST_SPEECH_SILENCE_DURATION% min_len=%STT_SERVER_MIN_LENGTH_OF_RECORDING% early=%STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE%
 if /I "%LLM_PROVIDER%"=="gguf" (
   echo [INFO] GGUF model profile: %LLM_MODEL_PROFILE%
   echo [INFO] GGUF model id: %GGUF_MODEL%
   echo [INFO] GGUF model path: %GGUF_MODEL_PATH%
   if defined GGUF_MMPROJ_PATH echo [INFO] GGUF mmproj path: %GGUF_MMPROJ_PATH%
+  if defined LLAMA_BIN_DIR echo [INFO] llama bin dir: %LLAMA_BIN_DIR%
   echo [INFO] GGUF base URL: %GGUF_BASE_URL%
   echo [INFO] llama-server: %LLAMA_SERVER_EXE%
 )
@@ -477,9 +511,9 @@ echo [2/5] Preparing RealtimeSTT launcher...
   echo cd /d "%STT_DIR%"
   echo set "CUDA_VISIBLE_DEVICES=-1"
   if defined STT_SERVER_CMD (
-    echo "%STT_SERVER_CMD%" -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
+    echo "%STT_SERVER_CMD%" -m %STT_SERVER_MODEL% -l %STT_SERVER_LANGUAGE% -c 8011 -d 8012 --device %STT_SERVER_DEVICE% --compute_type %STT_SERVER_COMPUTE_TYPE% --webrtc_sensitivity %STT_SERVER_WEBRTC_SENSITIVITY% --silero_sensitivity %STT_SERVER_SILERO_SENSITIVITY% --end_of_sentence_detection_pause %STT_SERVER_POST_SPEECH_SILENCE_DURATION% --min_length_of_recording %STT_SERVER_MIN_LENGTH_OF_RECORDING% --min_gap_between_recordings %STT_SERVER_MIN_GAP_BETWEEN_RECORDINGS% --early_transcription_on_silence %STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE%
   ) else (
-    echo python -m RealtimeSTT_server.stt_server -m small -l zh -c 8011 -d 8012 --device cpu --compute_type int8 --webrtc_sensitivity 1 --silero_sensitivity 0.25 --min_length_of_recording 0.35 --early_transcription_on_silence 0.1
+    echo python -m RealtimeSTT_server.stt_server -m %STT_SERVER_MODEL% -l %STT_SERVER_LANGUAGE% -c 8011 -d 8012 --device %STT_SERVER_DEVICE% --compute_type %STT_SERVER_COMPUTE_TYPE% --webrtc_sensitivity %STT_SERVER_WEBRTC_SENSITIVITY% --silero_sensitivity %STT_SERVER_SILERO_SENSITIVITY% --end_of_sentence_detection_pause %STT_SERVER_POST_SPEECH_SILENCE_DURATION% --min_length_of_recording %STT_SERVER_MIN_LENGTH_OF_RECORDING% --min_gap_between_recordings %STT_SERVER_MIN_GAP_BETWEEN_RECORDINGS% --early_transcription_on_silence %STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE%
   )
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
@@ -497,6 +531,7 @@ echo [3/5] Preparing STT bridge launcher...
   echo set "STT_BRIDGE_CONTROL_TIMEOUT_SEC=%STT_BRIDGE_CONTROL_TIMEOUT_SEC%"
   echo set "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC=%STT_BRIDGE_REALTIME_IDLE_RETURN_SEC%"
   echo set "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC=%STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC%"
+  echo set "STT_BRIDGE_FULL_SENTENCE_GRACE_SEC=%STT_BRIDGE_FULL_SENTENCE_GRACE_SEC%"
   echo set "STT_BRIDGE_CLEAR_BEFORE_FEED=%STT_BRIDGE_CLEAR_BEFORE_FEED%"
   echo set "STT_BRIDGE_STOP_AFTER_FEED=%STT_BRIDGE_STOP_AFTER_FEED%"
   echo "%UV_EXE%" --directory "%CORE_DIR%" run python bridges\realtimestt_http_bridge.py
@@ -637,6 +672,8 @@ call :yaml_get "GGUF_QWEN_MODEL_PATH" GGUF_QWEN_MODEL_PATH
 call :yaml_get "GGUF_INTERNVL_MODEL" GGUF_INTERNVL_MODEL
 call :yaml_get "GGUF_INTERNVL_MODEL_PATH" GGUF_INTERNVL_MODEL_PATH
 call :yaml_get "GGUF_MMPROJ_PATH" GGUF_MMPROJ_PATH
+call :yaml_get "LLAMA_SERVER_EXE" LLAMA_SERVER_EXE
+call :yaml_get "LLAMA_BIN_DIR" LLAMA_BIN_DIR
 call :yaml_get "GGUF_THREADS" GGUF_THREADS
 call :yaml_get "GGUF_N_GPU_LAYERS" GGUF_N_GPU_LAYERS
 call :yaml_get "GGUF_CTX" GGUF_CTX
@@ -661,8 +698,19 @@ call :yaml_get "STT_BRIDGE_PORT" STT_BRIDGE_PORT
 call :yaml_get "STT_BRIDGE_CONTROL_TIMEOUT_SEC" STT_BRIDGE_CONTROL_TIMEOUT_SEC
 call :yaml_get "STT_BRIDGE_REALTIME_IDLE_RETURN_SEC" STT_BRIDGE_REALTIME_IDLE_RETURN_SEC
 call :yaml_get "STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC" STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC
+call :yaml_get "STT_BRIDGE_FULL_SENTENCE_GRACE_SEC" STT_BRIDGE_FULL_SENTENCE_GRACE_SEC
 call :yaml_get "STT_BRIDGE_CLEAR_BEFORE_FEED" STT_BRIDGE_CLEAR_BEFORE_FEED
 call :yaml_get "STT_BRIDGE_STOP_AFTER_FEED" STT_BRIDGE_STOP_AFTER_FEED
+call :yaml_get "STT_SERVER_MODEL" STT_SERVER_MODEL
+call :yaml_get "STT_SERVER_LANGUAGE" STT_SERVER_LANGUAGE
+call :yaml_get "STT_SERVER_DEVICE" STT_SERVER_DEVICE
+call :yaml_get "STT_SERVER_COMPUTE_TYPE" STT_SERVER_COMPUTE_TYPE
+call :yaml_get "STT_SERVER_WEBRTC_SENSITIVITY" STT_SERVER_WEBRTC_SENSITIVITY
+call :yaml_get "STT_SERVER_SILERO_SENSITIVITY" STT_SERVER_SILERO_SENSITIVITY
+call :yaml_get "STT_SERVER_POST_SPEECH_SILENCE_DURATION" STT_SERVER_POST_SPEECH_SILENCE_DURATION
+call :yaml_get "STT_SERVER_MIN_LENGTH_OF_RECORDING" STT_SERVER_MIN_LENGTH_OF_RECORDING
+call :yaml_get "STT_SERVER_MIN_GAP_BETWEEN_RECORDINGS" STT_SERVER_MIN_GAP_BETWEEN_RECORDINGS
+call :yaml_get "STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE" STT_SERVER_EARLY_TRANSCRIPTION_ON_SILENCE
 call :yaml_get "KOKORO_VOICE" KOKORO_VOICE
 call :yaml_get "KOKORO_LANG" KOKORO_LANG
 call :yaml_get "KOKORO_SPEED" KOKORO_SPEED

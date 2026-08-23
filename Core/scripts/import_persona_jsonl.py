@@ -17,6 +17,7 @@ from pathlib import Path
 from chromadb import PersistentClient
 
 
+# Import persona jsonl lines into a Chroma collection.
 def main() -> None:
     # 读取 jsonl 人格语料并批量写入 Chroma collection。
     # 一行一个 JSON，对应一条可检索的人格语料。

@@ -28,10 +28,12 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 CONTROL_TIMEOUT_SEC = max(0.1, float(os.getenv("STT_BRIDGE_CONTROL_TIMEOUT_SEC", "0.2")))
-REALTIME_IDLE_RETURN_SEC = max(0.05, float(os.getenv("STT_BRIDGE_REALTIME_IDLE_RETURN_SEC", "0.22")))
-FULL_SENTENCE_WAIT_MAX_SEC = max(0.4, float(os.getenv("STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC", "2.0")))
+REALTIME_IDLE_RETURN_SEC = max(0.05, float(os.getenv("STT_BRIDGE_REALTIME_IDLE_RETURN_SEC", "0.35")))
+FULL_SENTENCE_WAIT_MAX_SEC = max(0.4, float(os.getenv("STT_BRIDGE_FULL_SENTENCE_WAIT_MAX_SEC", "3.0")))
+FULL_SENTENCE_GRACE_SEC = max(0.05, float(os.getenv("STT_BRIDGE_FULL_SENTENCE_GRACE_SEC", "0.45")))
 
 
+# Parse boolean env vars with a default.
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -65,6 +67,7 @@ class ProbeReq(BaseModel):
 
 class RealtimeSTTBridge:
     """RealtimeSTTBridge: main class container for related behavior in this module."""
+    # Initialize websocket endpoints and runtime state.
     def __init__(self, control_ws: str, data_ws: str) -> None:
         # 初始化控制通道、数据通道与内部结果队列。
         """Initialize the object state and cache required dependencies."""
@@ -84,10 +87,12 @@ class RealtimeSTTBridge:
         self.last_error = ""
         self.last_transcribe: dict[str, Any] = {}
 
+    # Return current time as ISO string.
     @staticmethod
     def _now_iso() -> str:
         return datetime.now().isoformat(timespec="seconds")
 
+    # Drain queued transcription messages.
     def _drain_queue(self) -> int:
         dropped = 0
         while not self.queue.empty():
@@ -95,6 +100,7 @@ class RealtimeSTTBridge:
             dropped += 1
         return dropped
 
+    # Mark the connection broken and clean up sockets.
     async def _mark_broken(self, reason: str) -> None:
         self.last_error = str(reason)
         self.transcribe_failures += 1
@@ -118,6 +124,7 @@ class RealtimeSTTBridge:
         self.control_ws = None
         self.data_ws = None
 
+    # Ensure control/data websocket connections are active.
     async def ensure_connected(self) -> None:
         # 按需建立双 WS 连接，并启动后台接收协程。
         # RealtimeSTT 使用“控制通道 + 数据通道”双连接模型。
@@ -133,6 +140,7 @@ class RealtimeSTTBridge:
             self.recv_task = asyncio.create_task(self._recv_loop())
             self.connected_at = self._now_iso()
 
+    # Receive data websocket messages into local queue.
     async def _recv_loop(self) -> None:
         # 接收 data_ws 的识别结果并写入本地消息队列。
         # 结果类型常见：realtime（中间结果）/fullSentence（最终句子）。
@@ -165,6 +173,7 @@ class RealtimeSTTBridge:
         except Exception as exc:
             await self._mark_broken(f"data recv failed: {exc}")
 
+    # Send a control command and await response.
     async def _send_control(self, command: dict, timeout_sec: float = 2.0) -> dict[str, Any]:
         # 通过 control_ws 发送控制命令（start/stop 等）。
         """Internal helper `_send_control` used by this module implementation."""
@@ -188,6 +197,7 @@ class RealtimeSTTBridge:
             )
             return obj
 
+    # Invoke control methods for diagnostics.
     async def probe_control(self, methods: list[str]) -> dict[str, Any]:
         """Call a list of control methods and return raw acknowledgements."""
         out: dict[str, Any] = {}
@@ -209,6 +219,7 @@ class RealtimeSTTBridge:
                 out[method] = {"status": "error", "message": str(exc)}
         return out
 
+    # Return a snapshot of bridge runtime state.
     def debug_state(self) -> dict[str, Any]:
         """Export bridge runtime state and recent control/data activity."""
         return {
@@ -222,6 +233,7 @@ class RealtimeSTTBridge:
                 "control_timeout_sec": CONTROL_TIMEOUT_SEC,
                 "realtime_idle_return_sec": REALTIME_IDLE_RETURN_SEC,
                 "full_sentence_wait_max_sec": FULL_SENTENCE_WAIT_MAX_SEC,
+                "full_sentence_grace_sec": FULL_SENTENCE_GRACE_SEC,
                 "clear_before_feed": CLEAR_BEFORE_FEED,
                 "stop_after_feed": STOP_AFTER_FEED,
             },
@@ -234,6 +246,7 @@ class RealtimeSTTBridge:
             "recent_data": list(self.data_events),
         }
 
+    # Build binary packet for RealtimeSTT ingestion.
     @staticmethod
     def _build_binary_packet(pcm: bytes, sample_rate: int) -> bytes:
         # 组装 RealtimeSTT 所需的“元数据长度 + 元数据 + PCM”二进制包。
@@ -242,6 +255,7 @@ class RealtimeSTTBridge:
         metadata = json.dumps({"sampleRate": int(sample_rate)}).encode("utf-8")
         return len(metadata).to_bytes(4, byteorder="little") + metadata + pcm
 
+    # Run a single transcription session and return text.
     async def transcribe(self, pcm_base64: str, sample_rate: int, timeout_sec: float) -> str:
         # 执行一次完整转写流程，优先返回 fullSentence，超时回退 realtime。
         # 串行化转写请求，避免多请求并发时串音。
@@ -282,6 +296,7 @@ class RealtimeSTTBridge:
                 min(float(timeout_sec), FULL_SENTENCE_WAIT_MAX_SEC),
             )
             last_realtime = ""
+            last_realtime_at = 0.0
             full_sentence = ""
             waited_ms = 0
             while asyncio.get_running_loop().time() < deadline:
@@ -296,9 +311,11 @@ class RealtimeSTTBridge:
                     msg = await asyncio.wait_for(self.queue.get(), timeout=remain)
                 except TimeoutError:
                     waited_ms += int((asyncio.get_running_loop().time() - t0) * 1000)
-                    # Once we already have realtime text, return quickly on idle gap.
                     if last_realtime:
-                        break
+                        # Prefer fullSentence: keep waiting during a short grace window after last realtime token.
+                        now = asyncio.get_running_loop().time()
+                        if last_realtime_at > 0 and (now - last_realtime_at) < FULL_SENTENCE_GRACE_SEC and now < deadline:
+                            continue
                     break
                 waited_ms += int((asyncio.get_running_loop().time() - t0) * 1000)
                 if msg.msg_type == "fullSentence":
@@ -306,6 +323,7 @@ class RealtimeSTTBridge:
                     break
                 if msg.msg_type == "realtime":
                     last_realtime = msg.text
+                    last_realtime_at = asyncio.get_running_loop().time()
 
             if STOP_AFTER_FEED:
                 # Optional compatibility mode for deployments that require explicit stop.
@@ -341,6 +359,7 @@ bridge = RealtimeSTTBridge(CONTROL_WS, DATA_WS)
 app = FastAPI(title="RealtimeSTT HTTP Bridge")
 
 
+# Health endpoint for the bridge.
 @app.get("/")
 async def root() -> dict[str, str]:
     # 桥接服务健康检查。
@@ -348,12 +367,14 @@ async def root() -> dict[str, str]:
     return {"status": "ok", "service": "realtimestt_http_bridge"}
 
 
+# Debug endpoint exposing bridge state.
 @app.get("/debug/state")
 async def debug_state() -> dict[str, Any]:
     """Expose bridge internal state for STT troubleshooting."""
     return bridge.debug_state()
 
 
+# Run control method probes via POST.
 @app.post("/debug/probe-control")
 async def debug_probe_control(req: ProbeReq) -> dict[str, Any]:
     """Run control method probes and return the raw server acknowledgements."""
@@ -364,6 +385,7 @@ async def debug_probe_control(req: ProbeReq) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
+# Show usage help for probe control.
 @app.get("/debug/probe-control")
 async def debug_probe_control_help() -> dict[str, Any]:
     """Browser-friendly hint for probe endpoint usage."""
@@ -378,6 +400,7 @@ async def debug_probe_control_help() -> dict[str, Any]:
     }
 
 
+# HTTP transcription endpoint.
 @app.post("/transcribe")
 async def transcribe(req: TranscribeReq) -> dict[str, str]:
     # HTTP 转写入口：调用桥接器并返回文本结果。

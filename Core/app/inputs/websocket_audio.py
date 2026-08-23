@@ -16,6 +16,7 @@ from app.core.events import Event, EventType
 router = APIRouter()
 
 
+# Handle websocket audio/text input from the frontend.
 @router.websocket("/ws/audio")
 async def ws_audio(ws: WebSocket) -> None:
     bus = ws.app.state.bus

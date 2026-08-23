@@ -20,6 +20,7 @@ from app.core.config import settings
 router = APIRouter(prefix="/integrations")
 
 
+# Probe an HTTP endpoint for a basic response.
 async def _check_http(url: str) -> dict[str, object]:
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -29,6 +30,7 @@ async def _check_http(url: str) -> dict[str, object]:
         return {"ok": False, "error": str(exc)}
 
 
+# Report integration status for LLM, TTS, and STT.
 @router.get("/status")
 async def deps(request: Request) -> dict[str, object]:
     llm = request.app.state.llm

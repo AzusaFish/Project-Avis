@@ -36,6 +36,7 @@ from app.tools.time_tool import CurrentTimeTool
 from wechat.runtime.wechat_tool import WeChatSendTool
 
 
+# Initialize runtime services and background tasks on app startup.
 async def startup(app: FastAPI) -> None:
     bus = EventBus()
     sqlite = SQLiteStore()
@@ -52,7 +53,7 @@ async def startup(app: FastAPI) -> None:
     tools.register(GoogleSearchTool())
     tools.register(DesktopScreenshotTool())
     tools.register(WeChatSendTool())
-    tools.register(Live2DControlTool())
+    tools.register(Live2DControlTool(frontend=frontend))
     tools.register(SlayTheSpireTool())
     tools.register(CurrentTimeTool())
 
@@ -82,6 +83,7 @@ async def startup(app: FastAPI) -> None:
     ]
 
 
+# Stop background tasks and clean up on shutdown.
 async def shutdown(app: FastAPI) -> None:
     app.state.agent.stop()
     reflector = getattr(app.state, "reflector", None)

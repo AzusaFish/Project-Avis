@@ -110,5 +110,7 @@ Tuning/Data_Collection/
 ToDo.md
 Core/instructions/
 Tuning/LLaMa_Factory/tools/
-/Tuning/Data_Collection
-Tuning/Data_Collection/neuro.py
+Tuning/Data_Collection
+Tuning/LLaMa_Factory/acceptance_reports/
+Tools/
+Ref/

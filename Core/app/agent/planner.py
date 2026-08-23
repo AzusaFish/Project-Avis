@@ -22,6 +22,7 @@ class PlannerResult:
     raw_text: str
 
 
+# Parse model JSON into a structured planner result.
 def parse_model_action(raw_text: str) -> PlannerResult:
     text = raw_text.strip()
     try:

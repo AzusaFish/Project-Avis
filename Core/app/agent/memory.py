@@ -19,16 +19,19 @@ from app.storage.sqlite_store import SQLiteStore
 
 
 class MemoryFacade:
+    # Bind short-term and long-term stores into one facade.
     def __init__(self, sqlite_store: SQLiteStore, chroma_store: ChromaStore) -> None:
         self.sqlite = sqlite_store
         self.chroma = chroma_store
 
+    # Normalize role names to the supported set.
     def _normalize_role(self, role: str) -> str:
         role_norm = str(role or "user").strip().lower()
         if role_norm not in {"user", "assistant", "system", "tool"}:
             return "user"
         return role_norm
 
+    # Persist a message into the short-term memory table.
     async def append_short_term_memory(
         self,
         role: str,
@@ -71,9 +74,11 @@ class MemoryFacade:
             source_event=str(source_event or ""),
         )
 
+    # Backward-compatible wrapper for short-term writes.
     async def append_dialogue(self, role: str, text: str) -> None:
         await self.append_short_term_memory(role=role, content=text, source_event="dialogue_compat")
 
+    # Fetch and normalize recent dialogue for context building.
     async def recent_dialogue(self, limit: int = 16) -> list[dict[str, Any]]:
         scan_limit = max(limit * 4, int(getattr(settings, "memory_context_recent_window", 16)) * 4)
         rows = await self.sqlite.fetch_recent_dialogue(limit=scan_limit)
@@ -93,12 +98,15 @@ class MemoryFacade:
             )
         return normalized
 
+    # Retrieve few-shot persona examples by semantic query.
     def retrieve_persona_examples(self, query: str, top_k: int = 4) -> list[str]:
         return self.chroma.search_persona(query=query, top_k=top_k)
 
+    # Retrieve long-term memory notes by semantic query.
     def retrieve_long_term_notes(self, query: str, top_k: int = 4) -> list[str]:
         return self.chroma.search_long_term(query=query, top_k=top_k)
 
+    # Append summarized notes into long-term vector storage.
     def append_long_term_notes(
         self,
         notes: list[str],

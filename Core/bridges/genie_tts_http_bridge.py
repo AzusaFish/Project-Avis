@@ -93,6 +93,7 @@ class GenieRuntimeSpec:
     reference_audio_text: str
 
 
+# Convert waveform to PCM16 WAV bytes.
 def _to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
     """Convert float waveform (-1~1) to PCM16 wav bytes."""
     pcm16 = np.clip(audio, -1.0, 1.0)
@@ -113,6 +114,7 @@ def _to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
             pass
 
 
+# Return the first non-empty string from candidates.
 def _first_non_empty(*values: str | None) -> str:
     """Return first non-empty trimmed string, or empty string."""
     for value in values:
@@ -122,11 +124,13 @@ def _first_non_empty(*values: str | None) -> str:
     return ""
 
 
+# Normalize whitespace for stable TTS input.
 def _normalize_text(text: str) -> str:
     """Collapse repeated whitespace for stable synthesis input."""
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Map user language hints to Genie language codes.
 def _normalize_lang(lang: str) -> str:
     """Map user language variants to Genie language codes."""
     value = (lang or "").strip().lower()
@@ -137,6 +141,7 @@ def _normalize_lang(lang: str) -> str:
     return "en"
 
 
+# Resolve a path relative to the Core project root.
 def _resolve_path(path: str) -> str:
     """Resolve a possibly-relative path against Core project root."""
     if not path:
@@ -147,6 +152,7 @@ def _resolve_path(path: str) -> str:
     return str(p)
 
 
+# Parse voice alias mappings from env string.
 def _parse_voice_aliases(raw: str) -> dict[str, str]:
     """Parse GENIE_VOICE_ALIASES like 'atri:thirtyseven,foo:bar'."""
     mapping: dict[str, str] = {"atri": "thirtyseven"}
@@ -197,6 +203,7 @@ app.add_middleware(
 )
 
 
+# Ensure genie_tts is available before synthesis.
 def _require_genie() -> None:
     """Raise a clear HTTP error when genie_tts is not installed."""
     if genie is None:
@@ -207,6 +214,7 @@ def _require_genie() -> None:
         raise HTTPException(status_code=503, detail=detail)
 
 
+# Resolve request fields into a runtime spec.
 def _resolve_runtime_spec(req: _GenieExtraReq, voice: str | None, lang: str | None) -> GenieRuntimeSpec:
     """Resolve profile-like fields from request into one runtime spec."""
     requested_character = _first_non_empty(
@@ -251,6 +259,7 @@ def _resolve_runtime_spec(req: _GenieExtraReq, voice: str | None, lang: str | No
     )
 
 
+# Load or switch to the requested character config.
 def _ensure_character_loaded(spec: GenieRuntimeSpec) -> None:
     """Load character runtime (onnx or predefined) exactly once per config key."""
     model_key = (
@@ -275,6 +284,7 @@ def _ensure_character_loaded(spec: GenieRuntimeSpec) -> None:
     _loaded_models[spec.runtime_character] = model_key
 
 
+# Configure reference audio for voice cloning.
 def _ensure_reference_audio(spec: GenieRuntimeSpec) -> None:
     """Bind reference audio for cloning when the path exists."""
     if not spec.reference_audio_path:
@@ -298,6 +308,7 @@ def _ensure_reference_audio(spec: GenieRuntimeSpec) -> None:
     _configured_references[spec.runtime_character] = ref_key
 
 
+# Call genie.tts with compatible argument variants.
 def _invoke_genie_tts(
     character_name: str,
     text: str,
@@ -325,6 +336,7 @@ def _invoke_genie_tts(
     raise RuntimeError("genie.tts failed before invocation")
 
 
+# Convert genie return values into wav bytes.
 def _result_to_wav_bytes(result: Any) -> bytes | None:
     """Convert non-file return value from genie.tts into wav bytes when possible."""
     if isinstance(result, (bytes, bytearray)):
@@ -341,6 +353,7 @@ def _result_to_wav_bytes(result: Any) -> bytes | None:
     return None
 
 
+# Run synthesis and return wav bytes.
 def _synthesize_wav_bytes(text: str, spec: GenieRuntimeSpec, speed: float) -> bytes:
     """Run Genie inference and return wav bytes."""
     _require_genie()
@@ -371,6 +384,7 @@ def _synthesize_wav_bytes(text: str, spec: GenieRuntimeSpec, speed: float) -> by
                 pass
 
 
+# Health endpoint for the bridge.
 @app.get("/")
 async def root() -> dict[str, str]:
     """Health probe endpoint."""
@@ -378,6 +392,7 @@ async def root() -> dict[str, str]:
     return {"status": status, "service": "genie_tts_http_bridge"}
 
 
+# OpenAI-style TTS endpoint.
 @app.post("/v1/audio/speech")
 async def openai_speech(req: OpenAISpeechReq) -> Response:
     """OpenAI-style compatibility endpoint for TTSService."""
@@ -403,6 +418,7 @@ async def openai_speech(req: OpenAISpeechReq) -> Response:
     return Response(content=wav_bytes, media_type="audio/wav")
 
 
+# Legacy TTS endpoint for compatibility.
 @app.post("/tts")
 async def legacy_tts(req: LegacyTTSReq) -> Response:
     """Legacy compatibility endpoint used by fallback calls."""

@@ -27,6 +27,7 @@ class TextReq(BaseModel):
     text: str
 
 
+# Submit a text message to the event bus.
 @router.post("/text")
 async def post_text(req: TextReq, request: Request) -> dict[str, str]:
     bus = request.app.state.bus
@@ -34,6 +35,7 @@ async def post_text(req: TextReq, request: Request) -> dict[str, str]:
     return {"status": "queued"}
 
 
+# Upload microphone audio and publish as an audio chunk.
 @router.post("/microphone")
 async def post_microphone(
     request: Request,

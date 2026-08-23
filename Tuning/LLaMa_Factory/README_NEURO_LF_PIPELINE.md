@@ -35,9 +35,26 @@ start_everything.bat
 start_everything.bat --dry-run
 start_everything.bat --no-pause
 start_everything.bat --export-only
+start_everything.bat --skip-acceptance
 ```
 
 `--export-only` will skip prepare/SFT/DPO and export GGUF from existing DPO adapter output.
+
+## Post-training acceptance
+
+`start_everything.bat` now runs `post_train_acceptance.py` automatically after export by default.
+
+It checks 3 targets:
+- generic assistant fallback rate (from `datasets/neuro_uncensored_dpo_en.json`)
+- screenshot description correctness proxy (runtime check against Core API if available)
+- screenshot first/second reply consistency and screenshot-context retention in the next-turn prompt
+
+Generated report path:
+- `acceptance_reports/acceptance_YYYYMMDD_HHMMSS.json`
+
+Runtime notes:
+- If Core is not running at `http://127.0.0.1:8080`, runtime screenshot checks are skipped and only offline/static checks are reported.
+- To customize screenshot keyword checks, create `acceptance_screenshot_cases.json` based on `acceptance_screenshot_cases.example.json`.
 
 Generated files:
 - datasets/neuro_sft_en.json

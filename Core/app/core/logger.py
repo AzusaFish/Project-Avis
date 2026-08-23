@@ -11,6 +11,7 @@ Beginner note:
 import logging
 
 
+# Configure global logging defaults and noisy logger levels.
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,

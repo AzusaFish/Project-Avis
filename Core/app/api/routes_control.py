@@ -21,6 +21,7 @@ class InjectTextReq(BaseModel):
 router = APIRouter(prefix="/control")
 
 
+# Inject a text message into the event bus.
 @router.post("/inject_text")
 async def inject_text(req: InjectTextReq, request: Request) -> dict[str, str]:
     bus = request.app.state.bus
@@ -28,6 +29,7 @@ async def inject_text(req: InjectTextReq, request: Request) -> dict[str, str]:
     return {"status": "queued"}
 
 
+# Report current event bus queue size.
 @router.get("/queue_size")
 async def queue_size(request: Request) -> dict[str, int]:
     bus = request.app.state.bus

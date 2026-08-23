@@ -25,6 +25,7 @@ from app.core.logger import setup_logging
 from app.inputs.websocket_audio import router as audio_ws_router
 
 
+# Manage application startup and shutdown lifecycle.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()

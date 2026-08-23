@@ -24,6 +24,7 @@ _engagement = 0.6
 _active_lock = Lock()
 
 
+# Clamp a value between lower and upper bounds.
 def _clamp(value: float, lo: float, hi: float) -> float:
     if value < lo:
         return lo
@@ -32,6 +33,7 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return value
 
 
+# Update activity timestamps and engagement score.
 def mark_activity(kind: str = "generic", text: str = "") -> None:
     global _last_active, _engagement
     with _active_lock:
@@ -47,16 +49,19 @@ def mark_activity(kind: str = "generic", text: str = "") -> None:
             _engagement = _clamp(_engagement - 0.01, 0.05, 1.0)
 
 
+# Read the last activity timestamp safely.
 def _read_last_active() -> datetime:
     with _active_lock:
         return _last_active
 
 
+# Read the current engagement score safely.
 def _read_engagement() -> float:
     with _active_lock:
         return _engagement
 
 
+# Map engagement to a silence multiplier.
 def _silence_multiplier(engagement: float) -> float:
     if engagement >= 0.8:
         return 0.7
@@ -67,6 +72,7 @@ def _silence_multiplier(engagement: float) -> float:
     return 3.6
 
 
+# Emit schedule ticks after prolonged silence.
 async def proactive_scheduler(bus: EventBus) -> None:
     while True:
         await asyncio.sleep(1)

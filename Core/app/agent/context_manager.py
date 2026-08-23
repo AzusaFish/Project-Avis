@@ -16,6 +16,7 @@ from typing import Any
 from app.core.config import settings
 
 
+# Roughly estimate token usage from character length.
 def rough_token_count(text: str) -> int:
     return max(1, len(text) // 3)
 
@@ -27,6 +28,7 @@ class ContextSlice:
     short_history: list[dict[str, str]]
     latest_input: str
 
+    # Render the context slice into LLM-ready message objects.
     def render_messages(self) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
         if self.persona_examples:
@@ -36,11 +38,11 @@ class ContextSlice:
                     "content": "Persona style examples:\n" + "\n".join(self.persona_examples),
                 }
             )
-        for item in self.short_history:
-            role = str(item.get("role", "user")).strip().lower()
-            if role not in {"user", "assistant", "system", "tool"}:
-                role = "user"
-            messages.append({"role": role, "content": str(item.get("content", ""))})
+        # for item in self.short_history:
+        #     role = str(item.get("role", "user")).strip().lower()
+        #     if role not in {"user", "assistant", "system", "tool"}:
+        #         continue
+        #     messages.append({"role": role, "content": str(item.get("content", ""))})
 
         latest = str(self.latest_input or "")
         latest_norm = latest.strip()
@@ -56,11 +58,13 @@ class ContextSlice:
 
 
 class ContextManager:
+    # Initialize context sizing and reserved token budgets.
     def __init__(self) -> None:
         self.max_context = settings.llm_max_context
         self.reserve_response = settings.context_reserved_for_response
         self.reserve_tools = settings.context_reserved_for_tools
 
+    # Select examples and dialogue that fit within the context budget.
     def build_slice(
         self,
         system_prompt: str,

@@ -18,19 +18,23 @@ from fastapi import WebSocket
 
 
 class FrontendGateway:
+    # Initialize connection registry and async lock.
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
+    # Accept and register a websocket connection.
     async def connect(self, ws: WebSocket, subprotocol: str | None = None) -> None:
         await ws.accept(subprotocol=subprotocol)
         async with self._lock:
             self._connections.add(ws)
 
+    # Remove a websocket connection from the registry.
     async def disconnect(self, ws: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(ws)
 
+    # Broadcast a JSON payload to all live connections.
     async def broadcast(self, payload: dict) -> None:
         dead: list[WebSocket] = []
         text = json.dumps(payload, ensure_ascii=False)

@@ -49,6 +49,7 @@ EMOTION_TO_ACTION = {
 
 
 class AgentLoop:
+    # Wire dependencies, initialize state, and configure STT buffering.
     def __init__(
         self,
         bus: EventBus,
@@ -77,6 +78,7 @@ class AgentLoop:
             0.0,
             float(getattr(settings, "stt_silence_rms_threshold", 0.003)),
         )
+        self._stt_input_rms_gate_enabled = bool(getattr(settings, "stt_input_rms_gate_enabled", False))
         self._stt_min_audio_sec = max(0.05, float(getattr(settings, "stt_min_audio_sec", 0.2)))
         self._stt_noise_floor_ema = 0.0
         self._stt_adaptive_multiplier = max(1.0, float(getattr(settings, "stt_adaptive_noise_multiplier", 2.0)))
@@ -92,6 +94,7 @@ class AgentLoop:
         self._llm_debug_last_request: dict[str, object] = {}
         self._llm_debug_last_response: dict[str, object] = {}
 
+    # Update the agent state and notify the frontend.
     async def _set_agent_state(self, state: AgentState) -> None:
         if self._agent_state == state:
             return
@@ -107,11 +110,13 @@ class AgentLoop:
             }
         )
 
+    # Ensure the audio worker task is running.
     def _ensure_audio_worker(self) -> None:
         if self._audio_worker_task and not self._audio_worker_task.done():
             return
         self._audio_worker_task = asyncio.create_task(self._audio_worker(), name="audio_worker")
 
+    # Decode a single audio payload into PCM bytes and sample rate.
     @staticmethod
     def _decode_audio_payload(payload: dict[str, object]) -> tuple[bytes, int] | None:
         audio = str(payload.get("audio", ""))
@@ -131,6 +136,7 @@ class AgentLoop:
             sample_rate = 16000
         return pcm, sample_rate
 
+    # Batch audio chunks, gate silence, and trigger STT transcription.
     async def _audio_worker(self) -> None:
         while self._running:
             payload = await self._audio_queue.get()
@@ -142,14 +148,20 @@ class AgentLoop:
                     decoded_chunks.append(first)
 
                 buffered_sec = 0.0
+                batch_gap_sec = self._stt_flush_gap_sec
                 if decoded_chunks:
-                    buffered_sec = len(decoded_chunks[0][0]) / (2 * decoded_chunks[0][1])
+                    first_chunk_sec = len(decoded_chunks[0][0]) / (2 * decoded_chunks[0][1])
+                    buffered_sec = first_chunk_sec
+                    batch_gap_sec = max(
+                        self._stt_flush_gap_sec,
+                        min(0.3, first_chunk_sec * 1.5),
+                    )
 
                 while self._running and buffered_sec < self._stt_max_buffer_sec:
                     try:
                         next_payload = await asyncio.wait_for(
                             self._audio_queue.get(),
-                            timeout=self._stt_flush_gap_sec,
+                            timeout=batch_gap_sec,
                         )
                     except TimeoutError:
                         break
@@ -187,23 +199,24 @@ class AgentLoop:
                 except Exception:
                     rms_norm = 0.0
 
-                if self._stt_noise_floor_ema <= 0.0:
-                    self._stt_noise_floor_ema = rms_norm
-                dynamic_threshold = max(
-                    self._stt_silence_rms_threshold,
-                    self._stt_noise_floor_ema * self._stt_adaptive_multiplier,
-                )
+                if self._stt_input_rms_gate_enabled:
+                    if self._stt_noise_floor_ema <= 0.0:
+                        self._stt_noise_floor_ema = rms_norm
+                    dynamic_threshold = max(
+                        self._stt_silence_rms_threshold,
+                        self._stt_noise_floor_ema * self._stt_adaptive_multiplier,
+                    )
 
-                if rms_norm < dynamic_threshold * 1.2:
-                    self._stt_noise_floor_ema = self._stt_noise_floor_ema * 0.92 + rms_norm * 0.08
+                    if rms_norm < dynamic_threshold * 1.2:
+                        self._stt_noise_floor_ema = self._stt_noise_floor_ema * 0.92 + rms_norm * 0.08
 
-                if rms_norm < dynamic_threshold:
-                    self._stt_skipped_by_gate += 1
-                    if self._stt_skipped_by_gate < self._stt_force_probe_after_skips:
-                        continue
-                    self._stt_skipped_by_gate = 0
-                else:
-                    self._stt_skipped_by_gate = 0
+                    if rms_norm < dynamic_threshold:
+                        self._stt_skipped_by_gate += 1
+                        if self._stt_skipped_by_gate < self._stt_force_probe_after_skips:
+                            continue
+                        self._stt_skipped_by_gate = 0
+                    else:
+                        self._stt_skipped_by_gate = 0
 
                 stt_timeout_min = max(0.3, float(getattr(settings, "stt_transcribe_min_timeout_sec", 0.8)))
                 stt_timeout_max = max(
@@ -237,6 +250,7 @@ class AgentLoop:
                 for _ in range(taken):
                     self._audio_queue.task_done()
 
+    # Main loop: consume events and drive the agent pipeline.
     async def run_forever(self) -> None:
         self._running = True
         self._ensure_audio_worker()
@@ -250,6 +264,7 @@ class AgentLoop:
             except Exception:
                 logger.exception("agent loop event handling failed")
 
+    # Stream assistant text to the frontend in chunks.
     async def _emit_assistant_stream(self, text: str) -> None:
         step = max(1, settings.assistant_stream_chunk_chars)
         interval = max(0.0, settings.assistant_stream_interval_ms / 1000.0)
@@ -269,6 +284,7 @@ class AgentLoop:
             if interval > 0:
                 await asyncio.sleep(interval)
 
+    # Report runtime errors to the frontend and history.
     async def _emit_runtime_error(self, text: str) -> None:
         err_text = text.strip()
         if not err_text:
@@ -294,6 +310,7 @@ class AgentLoop:
             }
         )
 
+    # Estimate TTS playback duration from text length and speed.
     @staticmethod
     def _estimate_speech_duration_sec(text: str, speed: float = 1.0) -> float:
         content = str(text or "").strip()
@@ -303,6 +320,7 @@ class AgentLoop:
         punctuation = sum(content.count(ch) for ch in ",.;:!?")
         return max(0.8, len(content) / chars_per_sec + punctuation * 0.08)
 
+    # Flatten messages into a readable prompt log string.
     @staticmethod
     def _messages_to_prompt_text(messages: list[dict[str, object]]) -> str:
         lines: list[str] = []
@@ -328,6 +346,7 @@ class AgentLoop:
             lines.append(f"[{role}]\n{content}")
         return "\n\n".join(lines)
 
+    # Clamp reply length while respecting sentence boundaries.
     @staticmethod
     def _clamp_reply_text(text: str, max_chars: int) -> str:
         content = str(text or "").strip()
@@ -345,6 +364,7 @@ class AgentLoop:
                 cut = cut[:space]
         return cut.rstrip() + "..."
 
+    # Convert a local image file into a data URL for vision input.
     @staticmethod
     def _image_file_to_data_url(path_str: str) -> str:
         path = Path(path_str)
@@ -356,6 +376,7 @@ class AgentLoop:
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         return f"data:{mime};base64,{data}"
 
+    # Emit LLM debug snapshots to the frontend if enabled.
     async def _emit_llm_debug(self, *, stage: str, messages: list[dict[str, object]], raw_output: str = "") -> None:
         self._llm_debug_seq += 1
         entry = {
@@ -384,6 +405,7 @@ class AgentLoop:
             }
         )
 
+    # Return the latest LLM request/response debug state.
     def get_llm_debug_snapshot(self) -> dict[str, object]:
         return {
             "last_request": dict(self._llm_debug_last_request),
@@ -391,6 +413,7 @@ class AgentLoop:
             "seq": int(self._llm_debug_seq),
         }
 
+    # Extract a partially streamed speak text from raw JSON.
     @staticmethod
     def _extract_partial_speak_text(raw: str) -> str | None:
         if '"speak"' not in raw.lower():
@@ -433,11 +456,13 @@ class AgentLoop:
         except Exception:
             return encoded.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
 
+    # Stop the agent loop and cancel background tasks.
     def stop(self) -> None:
         self._running = False
         if self._audio_worker_task:
             self._audio_worker_task.cancel()
 
+    # Load KV summary state once from persistent storage.
     async def _ensure_kv_state(self) -> None:
         if self._kv_state_loaded:
             return
@@ -448,6 +473,7 @@ class AgentLoop:
             self._kv_summary = ""
         self._kv_state_loaded = True
 
+    # Estimate token usage for history plus latest input.
     @staticmethod
     def _history_token_estimate(history: list[dict[str, str]], latest_input: str) -> int:
         total = rough_token_count(latest_input)
@@ -455,6 +481,7 @@ class AgentLoop:
             total += rough_token_count(str(item.get("content", "")))
         return total
 
+    # Summarize history into a compact KV summary using the LLM.
     async def _compress_history_with_llm(
         self,
         history: list[dict[str, str]],
@@ -497,6 +524,7 @@ class AgentLoop:
         summary = str(data.get("summary") or data.get("compressed_summary") or "").strip()
         return summary[:3000]
 
+    # Conditionally compress history and inject KV summary into context.
     async def _maybe_compress_history(
         self,
         history: list[dict[str, str]],
@@ -533,6 +561,7 @@ class AgentLoop:
         tail = history[-tail_count:] if len(history) > tail_count else history
         return [{"role": "system", "content": f"[KV_SUMMARY]\n{self._kv_summary}"}, *tail]
 
+    # Handle incoming events and drive tool/LLM/voice responses.
     async def _handle_event(self, event: Event) -> None:
         if event.event_type == EventType.USER_AUDIO_CHUNK:
             audio = str(event.payload.get("audio", ""))
@@ -781,6 +810,31 @@ class AgentLoop:
                     payload={
                         "text": f"Tool result: {tool_result}",
                         "tool_name": plan.action.tool_name,
+                        "tool_result": tool_result,
+                    },
+                )
+            )
+            return
+
+        if plan.action.action_type == AgentActionType.LIVE2D:
+            self._think_chain_count = 0
+            tool_args = dict(plan.action.tool_args or {})
+            if plan.action.emotion and "emotion" not in tool_args:
+                tool_args["emotion"] = plan.action.emotion
+            if plan.action.content and not any(
+                key in tool_args
+                for key in ("action", "action_name", "expression", "motion", "motion_group")
+            ):
+                tool_args["action"] = plan.action.content
+
+            tool_result = await self.tools.call("live2d_control", tool_args)
+            await self.bus.publish(
+                Event(
+                    event_type=EventType.TOOL_RESULT,
+                    source="tool",
+                    payload={
+                        "text": f"Tool result: {tool_result}",
+                        "tool_name": "live2d_control",
                         "tool_result": tool_result,
                     },
                 )

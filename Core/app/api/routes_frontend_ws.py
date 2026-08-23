@@ -18,6 +18,7 @@ from app.core.events import Event, EventType
 router = APIRouter()
 
 
+# Handle Live2D protocol websocket messages.
 @router.websocket("/ws/live2d")
 async def ws_live2d(ws: WebSocket) -> None:
     bus = ws.app.state.bus

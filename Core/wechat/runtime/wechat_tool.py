@@ -23,6 +23,7 @@ class WeChatSendTool:
 
     name = "wechat_send"
 
+    # Normalize common alias fields to bridge payload.
     def _normalize_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Normalize common alias fields to bridge contract."""
         to = str(
@@ -46,6 +47,7 @@ class WeChatSendTool:
             payload["text"] = text
         return payload
 
+    # Send a text message through the WeChat bridge.
     async def call(self, args: dict) -> str:
         """Public API `call` used by other modules or route handlers."""
         payload = self._normalize_args(args)

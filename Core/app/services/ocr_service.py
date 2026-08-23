@@ -16,9 +16,11 @@ from app.core.config import settings
 
 
 class OCRService:
+    # Initialize the OCR service base URL.
     def __init__(self) -> None:
         self.base_url = settings.ocr_base_url.rstrip("/")
 
+    # Send a base64 image to OCR and return text lines.
     async def parse_screen(self, image_base64: str) -> list[str]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(f"{self.base_url}/ocr", json={"image": image_base64})

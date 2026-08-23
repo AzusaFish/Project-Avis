@@ -46,6 +46,7 @@ class LegacyTTSReq(BaseModel):
     lang: str | None = None
 
 
+# Convert waveform to PCM16 WAV bytes.
 def _to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
     # Convert float32 waveform (-1~1) to PCM16 wav bytes for HTTP response.
     """Internal helper `_to_wav_bytes` used by this module implementation."""
@@ -96,11 +97,13 @@ app.add_middleware(
 )
 
 
+# Normalize whitespace for stable synthesis.
 def _normalize_text(text: str) -> str:
     """Internal helper `_normalize_text` used by this module implementation."""
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Resolve a valid Kokoro voice or fallback.
 def _resolve_voice(voice: str) -> str:
     """Return a valid Kokoro voice, falling back gracefully if missing."""
     if voice in AVAILABLE_VOICES:
@@ -128,6 +131,7 @@ def _resolve_voice(voice: str) -> str:
     return fallback
 
 
+# Split input text into synthesis-friendly chunks.
 def _split_text_chunks(text: str, max_chars: int) -> list[str]:
     """Internal helper `_split_text_chunks` used by this module implementation."""
     if len(text) <= max_chars:
@@ -173,6 +177,7 @@ def _split_text_chunks(text: str, max_chars: int) -> list[str]:
     return merged or [text]
 
 
+# Call kokoro.create with a fallback for boundary issues.
 def _safe_kokoro_create(text: str, voice: str, speed: float, lang: str) -> tuple[np.ndarray, int]:
     """Internal helper `_safe_kokoro_create` used by this module implementation."""
     try:
@@ -194,6 +199,7 @@ def _safe_kokoro_create(text: str, voice: str, speed: float, lang: str) -> tuple
         return np.concatenate([left_audio, right_audio]), left_sr
 
 
+# Synthesize text by chunking and concatenating audio.
 def _synthesize_text(text: str, voice: str, speed: float, lang: str) -> tuple[np.ndarray, int]:
     """Internal helper `_synthesize_text` used by this module implementation."""
     chunks = _split_text_chunks(text, CHUNK_CHARS)
@@ -213,12 +219,14 @@ def _synthesize_text(text: str, voice: str, speed: float, lang: str) -> tuple[np
     return np.concatenate(all_audio), sample_rate
 
 
+# Health endpoint for the bridge.
 @app.get("/")
 async def root() -> dict[str, str]:
     """Public API `root` used by other modules or route handlers."""
     return {"status": "ok", "service": "kokoro_onnx_http_bridge"}
 
 
+# OpenAI-style TTS endpoint.
 @app.post("/v1/audio/speech")
 async def openai_speech(req: OpenAISpeechReq) -> Response:
     """Public API `openai_speech` used by other modules or route handlers."""
@@ -242,6 +250,7 @@ async def openai_speech(req: OpenAISpeechReq) -> Response:
     return Response(content=wav_bytes, media_type="audio/wav")
 
 
+# Legacy TTS endpoint for compatibility.
 @app.post("/tts")
 async def legacy_tts(req: LegacyTTSReq) -> Response:
     """Public API `legacy_tts` used by other modules or route handlers."""

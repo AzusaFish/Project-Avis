@@ -14,6 +14,7 @@ import concurrent.futures
 import hashlib
 import json
 import random
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -32,6 +33,7 @@ class PrepareStats:
     dpo_kept: int = 0
     dpo_dedup_dropped: int = 0
     dpo_invalid_dropped: int = 0
+    dpo_style_dropped: int = 0
     vision_target: int = 0
     vision_candidates: int = 0
     vision_kept: int = 0
@@ -65,9 +67,9 @@ def resolve_train_profile(model_name_or_path: str) -> TrainProfile:
             dpo_grad_accum=48,
             sft_learning_rate=8.0e-5,
             # Keep DPO updates conservative to reduce catastrophic forgetting on vision abilities.
-            dpo_learning_rate=2.0e-6,
+            dpo_learning_rate=8.0e-7,
             sft_epochs=5.0,
-            dpo_epochs=1.0,
+            dpo_epochs=0.4,
             # Python 3.14 + custom remote-code models can fail pickling in worker processes.
             dataloader_workers=0,
             preprocessing_workers=1,
@@ -374,6 +376,24 @@ def hash_key(*parts: str) -> str:
     return hashlib.md5(raw.encode("utf-8", errors="ignore")).hexdigest()
 
 
+_GENERIC_ASSISTANT_PATTERNS = [
+    re.compile(r"\bhow\s+(can|may|might)\s+i\s+(assist|help)\s+you(\s+(today|now))?\b"),
+    re.compile(r"\bwhat\s+can\s+i\s+(assist|help)\s+you\s+with(\s+today)?\b"),
+    re.compile(r"\bhow\b.{0,24}\bi\b.{0,24}\b(assist|help)\s+you\b"),
+    re.compile(r"\bi(?:'m|\s+am)\s+here\s+to\s+(assist|help)\b"),
+    re.compile(r"\bas\s+an\s+ai\b"),
+    re.compile(r"\bvirtual\s+assistant\b"),
+]
+
+
+def is_generic_assistant_style(text: str) -> bool:
+    t = norm_text(text)
+    if not t:
+        return False
+    head = t[:320]
+    return any(p.search(head) for p in _GENERIC_ASSISTANT_PATTERNS)
+
+
 def safe_json_loads(line: str) -> dict[str, Any] | None:
     candidate = line.lstrip("\ufeff").strip()
     if not candidate:
@@ -585,6 +605,9 @@ def load_dpo_records(training_data_dir: Path, stats: PrepareStats) -> list[dict[
         if norm_text(c) == norm_text(r):
             stats.dpo_invalid_dropped += 1
             continue
+        if is_generic_assistant_style(c):
+            stats.dpo_style_dropped += 1
+            continue
 
         h = hash_key(norm_text(p), norm_text(c), norm_text(r))
         if h in seen:
@@ -678,7 +701,7 @@ def write_yaml_sft(
     if include_vision:
         dataset_value = "neuro_sft_en,neuro_vl_coco_subset"
         # Raise vision sampling ratio so text SFT does not drown image-language alignment.
-        interleave = "mix_strategy: interleave_under\ninterleave_probs: 0.65,0.35"
+        interleave = "mix_strategy: interleave_under\ninterleave_probs: 0.55,0.45"
     else:
         dataset_value = "neuro_sft_en"
         interleave = ""
@@ -757,7 +780,7 @@ finetuning_type: lora
 lora_target: {lora_target}
 quantization_bit: 4
 pref_loss: sigmoid
-pref_beta: 0.1
+pref_beta: 0.03
 
 ### dataset
 dataset: neuro_uncensored_dpo_en
