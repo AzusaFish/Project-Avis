@@ -20,6 +20,7 @@ import re
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
+from time import monotonic
 
 from app.agent.context_manager import ContextManager, rough_token_count
 from app.agent.memory import MemoryFacade
@@ -37,6 +38,8 @@ from app.services.tts_service import TTSService
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+STT_DUPLICATE_WINDOW_SEC = 2.0
 
 EMOTION_TO_ACTION = {
     "neutral": "普通",
@@ -85,6 +88,7 @@ class AgentLoop:
         self._stt_force_probe_after_skips = max(1, int(getattr(settings, "stt_force_probe_after_skips", 8)))
         self._stt_skipped_by_gate = 0
         self._last_stt_text = ""
+        self._last_stt_text_at = 0.0
         self._kv_summary = ""
         self._kv_state_loaded = False
         self._turns_since_kv_compress = max(0, int(settings.kv_compress_min_turns))
@@ -232,18 +236,26 @@ class AgentLoop:
                         timeout_sec=timeout_sec,
                     )
                 ).strip()
-                if text:
-                    if text == self._last_stt_text:
-                        continue
-                    self._last_stt_text = text
-                    mark_activity()
-                    await self.bus.publish(
-                        Event(
-                            event_type=EventType.USER_TEXT,
-                            source="stt",
-                            payload={"text": text},
-                        )
+                if not text:
+                    self._last_stt_text = ""
+                    continue
+                now = monotonic()
+                duplicate = (
+                    text == self._last_stt_text
+                    and now - self._last_stt_text_at < STT_DUPLICATE_WINDOW_SEC
+                )
+                self._last_stt_text = text
+                self._last_stt_text_at = now
+                if duplicate:
+                    continue
+                mark_activity()
+                await self.bus.publish(
+                    Event(
+                        event_type=EventType.USER_TEXT,
+                        source="stt",
+                        payload={"text": text},
                     )
+                )
             except Exception:
                 logger.exception("audio worker failed while transcribing chunk")
             finally:
@@ -580,6 +592,7 @@ class AgentLoop:
 
         if event.event_type == EventType.USER_INTERRUPTION:
             mark_activity(kind="user_interruption")
+            self._last_stt_text = ""
             await self.tts.stop_current()
             await self.bus.publish(Event(event_type=EventType.TTS_STOP, source="agent", payload={}))
             return

@@ -38,18 +38,26 @@ class ContextSlice:
                     "content": "Persona style examples:\n" + "\n".join(self.persona_examples),
                 }
             )
-        # for item in self.short_history:
-        #     role = str(item.get("role", "user")).strip().lower()
-        #     if role not in {"user", "assistant", "system", "tool"}:
-        #         continue
-        #     messages.append({"role": role, "content": str(item.get("content", ""))})
+        history_messages: list[dict[str, str]] = []
+        for item in self.short_history:
+            role = str(item.get("role", "user")).strip().lower()
+            if role not in {"user", "assistant", "system", "tool"}:
+                continue
+            content = str(item.get("content", ""))
+            if role == "tool":
+                # Our JSON action protocol has no native tool_call_id. Send the
+                # observation as text instead of an invalid API tool message.
+                role = "user"
+                content = f"[Tool result]\n{content}"
+            history_messages.append({"role": role, "content": content})
+        messages.extend(history_messages)
 
         latest = str(self.latest_input or "")
         latest_norm = latest.strip()
         should_append_latest = bool(latest_norm)
-        if should_append_latest and self.short_history:
-            last_content = str(self.short_history[-1].get("content", "")).strip()
-            if last_content == latest_norm:
+        if should_append_latest and history_messages:
+            last_message = history_messages[-1]
+            if last_message["role"] == "user" and last_message["content"].strip() == latest_norm:
                 should_append_latest = False
 
         if should_append_latest:

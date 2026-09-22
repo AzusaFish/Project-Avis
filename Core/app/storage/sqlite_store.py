@@ -25,7 +25,7 @@ class SQLiteStore:
 
     # Create tables and migrate legacy data if needed.
     async def init(self) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         async with aiosqlite.connect(self.path) as conn:
             await conn.execute(
                 "CREATE TABLE IF NOT EXISTS dialogue ("
@@ -71,14 +71,17 @@ class SQLiteStore:
 
     # Migrate legacy dialogue rows into short-term buffer.
     async def _migrate_dialogue_to_short_term(self, conn: aiosqlite.Connection) -> None:
+        # Commit this marker together with the import. An empty buffer after a
+        # user deletion must not trigger another import on the next startup.
+        cursor = await conn.execute(
+            "INSERT OR IGNORE INTO runtime_meta(k, v) VALUES('dialogue_migration_complete', '1')"
+        )
+        if cursor.rowcount == 0:
+            return
+
         cursor = await conn.execute("SELECT COUNT(*) FROM short_term_buffer")
         row = await cursor.fetchone()
         if int(row[0] if row else 0) > 0:
-            return
-
-        cursor = await conn.execute("SELECT COUNT(*) FROM dialogue")
-        row = await cursor.fetchone()
-        if int(row[0] if row else 0) <= 0:
             return
 
         await conn.execute(
@@ -325,8 +328,9 @@ class SQLiteStore:
     async def update_dialogue_text(self, dialogue_id: int, text: str) -> bool:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute(
-                "UPDATE short_term_buffer SET content = ? WHERE msg_id = ?",
-                (text, int(dialogue_id)),
+                "UPDATE short_term_buffer SET content = ?, token_estimate = ?, "
+                "processed_flag = 0, importance_score = 0.0, emotion_vector = '{}' WHERE msg_id = ?",
+                (text, max(1, len(text) // 3), int(dialogue_id)),
             )
             await conn.commit()
             return cursor.rowcount > 0
