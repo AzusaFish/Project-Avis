@@ -161,8 +161,9 @@ class LLMRouter:
             "temperature": self.temperature,
             "top_p": self.top_p,
             "max_tokens": settings.llm_max_output,
-            "response_format": {"type": "json_object"},
         }
+        if self.force_json:
+            payload["response_format"] = {"type": "json_object"}
         if self.provider in {"gguf", "llama_cpp"}:
             payload["stop"] = ["<|im_end|>", "<|im_start|>"]
         headers = {}
@@ -188,8 +189,9 @@ class LLMRouter:
             "top_p": self.top_p,
             "max_tokens": settings.llm_max_output,
             "stream": True,
-            "response_format": {"type": "json_object"},
         }
+        if self.force_json:
+            payload["response_format"] = {"type": "json_object"}
         if self.provider in {"gguf", "llama_cpp"}:
             payload["stop"] = ["<|im_end|>", "<|im_start|>"]
         headers = {}
