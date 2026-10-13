@@ -17,6 +17,7 @@ import json
 import logging
 import mimetypes
 import re
+import time
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +73,8 @@ class AgentLoop:
         self._system_prompt = build_system_prompt()
         self._audio_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=64)
         self._audio_worker_task: asyncio.Task | None = None
+        self._input_worker_task: asyncio.Task | None = None
+        self._active_event_task: asyncio.Task | None = None
         self._stt_flush_gap_sec = max(0.03, float(getattr(settings, "stt_audio_flush_gap_sec", 0.08)))
         self._stt_max_buffer_sec = max(0.12, float(getattr(settings, "stt_audio_max_buffer_sec", 0.9)))
         self._stt_silence_rms_threshold = max(
@@ -85,6 +88,7 @@ class AgentLoop:
         self._stt_force_probe_after_skips = max(1, int(getattr(settings, "stt_force_probe_after_skips", 8)))
         self._stt_skipped_by_gate = 0
         self._last_stt_text = ""
+        self._last_stt_at = 0.0
         self._kv_summary = ""
         self._kv_state_loaded = False
         self._turns_since_kv_compress = max(0, int(settings.kv_compress_min_turns))
@@ -233,9 +237,11 @@ class AgentLoop:
                     )
                 ).strip()
                 if text:
-                    if text == self._last_stt_text:
+                    now = time.monotonic()
+                    if text == self._last_stt_text and now - self._last_stt_at < 2.0:
                         continue
                     self._last_stt_text = text
+                    self._last_stt_at = now
                     mark_activity()
                     await self.bus.publish(
                         Event(
@@ -254,15 +260,43 @@ class AgentLoop:
     async def run_forever(self) -> None:
         self._running = True
         self._ensure_audio_worker()
-        await self._ensure_kv_state()
-        logger.info("agent loop started")
+        self._input_worker_task = asyncio.create_task(self._input_worker(), name="input_worker")
+        try:
+            await self._ensure_kv_state()
+            logger.info("agent loop started")
+            while self._running:
+                self._ensure_audio_worker()
+                event = await self.bus.consume()
+                task = asyncio.create_task(self._handle_event(event))
+                self._active_event_task = task
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    if not self._running:
+                        raise
+                    await self._set_agent_state(AgentState.IDLE)
+                except Exception:
+                    logger.exception("agent loop event handling failed")
+                    await self._set_agent_state(AgentState.IDLE)
+                finally:
+                    self._active_event_task = None
+        finally:
+            self._running = False
+            workers = [task for task in (self._audio_worker_task, self._input_worker_task) if task]
+            for task in workers:
+                task.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _input_worker(self) -> None:
         while self._running:
-            self._ensure_audio_worker()
-            event = await self.bus.consume()
+            event = await self.bus.consume_input()
             try:
+                if event.event_type == EventType.USER_INTERRUPTION:
+                    if self._active_event_task and not self._active_event_task.done():
+                        self._active_event_task.cancel()
                 await self._handle_event(event)
             except Exception:
-                logger.exception("agent loop event handling failed")
+                logger.exception("input event handling failed")
 
     # Stream assistant text to the frontend in chunks.
     async def _emit_assistant_stream(self, text: str) -> None:
@@ -461,6 +495,10 @@ class AgentLoop:
         self._running = False
         if self._audio_worker_task:
             self._audio_worker_task.cancel()
+        if self._input_worker_task:
+            self._input_worker_task.cancel()
+        if self._active_event_task:
+            self._active_event_task.cancel()
 
     # Load KV summary state once from persistent storage.
     async def _ensure_kv_state(self) -> None:
@@ -471,6 +509,10 @@ class AgentLoop:
         except Exception:
             logger.exception("failed to load kv summary state")
             self._kv_summary = ""
+        self._kv_state_loaded = True
+
+    def invalidate_kv_summary(self) -> None:
+        self._kv_summary = ""
         self._kv_state_loaded = True
 
     # Estimate token usage for history plus latest input.
@@ -580,6 +622,8 @@ class AgentLoop:
 
         if event.event_type == EventType.USER_INTERRUPTION:
             mark_activity(kind="user_interruption")
+            self._last_stt_text = ""
+            self._last_stt_at = 0.0
             await self.tts.stop_current()
             await self.bus.publish(Event(event_type=EventType.TTS_STOP, source="agent", payload={}))
             return
@@ -788,7 +832,7 @@ class AgentLoop:
                 model_text = "".join(chunks)
             else:
                 model_text = await self.llm.generate(messages)
-        except Exception as exc:
+        except Exception:
             logger.exception("llm request failed")
             await self._emit_runtime_error(
                 "LLM 服务暂时不可用（可能是推理服务忙碌或模型未就绪）。"

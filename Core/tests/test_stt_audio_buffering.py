@@ -25,6 +25,30 @@ class _FakeStt:
         return ""
 
 
+class _RepeatedStt(_FakeStt):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def transcribe_chunk(
+        self,
+        pcm_base64: str,
+        sample_rate: int = 16000,
+        timeout_sec: float | None = None,
+    ) -> str:
+        self.calls += 1
+        self.called.set()
+        return "你好"
+
+
+class _RecordingBus:
+    def __init__(self) -> None:
+        self.events = []
+
+    async def publish(self, event) -> None:
+        self.events.append(event)
+
+
 def test_audio_worker_keeps_short_frames_across_configured_flush_gap() -> None:
     async def run_case() -> None:
         stt = _FakeStt()
@@ -63,5 +87,57 @@ def test_audio_worker_keeps_short_frames_across_configured_flush_gap() -> None:
 
         assert stt.audio_bytes == len(frame) * 2
         assert stt.sample_rate == 16000
+
+    asyncio.run(run_case())
+
+
+def test_audio_worker_allows_repeating_the_same_phrase_after_cooldown() -> None:
+    async def run_case() -> None:
+        loop = object.__new__(AgentLoop)
+        loop._running = True
+        loop._audio_queue = asyncio.Queue(maxsize=8)
+        loop._stt_flush_gap_sec = 0.03
+        loop._stt_max_buffer_sec = 0.12
+        loop._stt_min_audio_sec = 0.05
+        loop._stt_input_rms_gate_enabled = False
+        loop._stt_noise_floor_ema = 0.0
+        loop._stt_silence_rms_threshold = 0.0
+        loop._stt_adaptive_multiplier = 2.0
+        loop._stt_force_probe_after_skips = 8
+        loop._stt_skipped_by_gate = 0
+        loop._last_stt_text = ""
+        loop._last_stt_at = 0.0
+        loop.stt = _RepeatedStt()
+        loop.bus = _RecordingBus()
+        payload = {
+            "audio": base64.b64encode(b"\x01\x00" * 2048).decode("ascii"),
+            "sample_rate": 16000,
+        }
+
+        worker = asyncio.create_task(loop._audio_worker())
+        try:
+            await loop._audio_queue.put(payload)
+            await asyncio.wait_for(loop.stt.called.wait(), timeout=1)
+            loop.stt.called.clear()
+            await asyncio.sleep(0)
+            assert len(loop.bus.events) == 1
+
+            await loop._audio_queue.put(payload)
+            await asyncio.wait_for(loop.stt.called.wait(), timeout=1)
+            loop.stt.called.clear()
+            await asyncio.sleep(0)
+            assert loop.stt.calls == 2
+            assert len(loop.bus.events) == 1
+
+            loop._last_stt_at -= 3.0
+            await loop._audio_queue.put(payload)
+            await asyncio.wait_for(loop.stt.called.wait(), timeout=1)
+            await asyncio.sleep(0)
+            assert len(loop.bus.events) == 2
+        finally:
+            loop._running = False
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
 
     asyncio.run(run_case())

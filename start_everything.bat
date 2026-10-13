@@ -5,11 +5,12 @@ set "CONFIG_FILE=%~dp0config.yaml"
 set "DRY_RUN=0"
 set "NO_UI=0"
 set "TTS_PROVIDER=kokoro"
+set "APP_HOST=127.0.0.1"
 set "KOKORO_VOICE=jf_alpha"
 set "KOKORO_LANG=en-us"
 set "KOKORO_SPEED=1.0"
 set "GPU_ID=0"
-set "CLEAN_PORTS=1"
+set "CLEAN_PORTS=0"
 set "LLM_PROVIDER=gguf"
 set "LLM_MODEL_PROFILE=internvl"
 set "GGUF_BASE_URL=http://127.0.0.1:8081/v1"
@@ -349,11 +350,7 @@ if /I "%TTS_PROVIDER%"=="kokoro" (
   echo [INFO] Kokoro lang: %KOKORO_LANG%
   echo [INFO] Kokoro speed: %KOKORO_SPEED%
 )
-if "%CLEAN_PORTS%"=="1" (
-  echo [INFO] Port clean mode: enabled
-) else (
-  echo [INFO] Port clean mode: disabled
-)
+if "%CLEAN_PORTS%"=="1" echo [WARN] CLEAN_PORTS is ignored; existing processes are never terminated automatically.
 
 if "%DRY_RUN%"=="0" (
   if not exist "%CORE_DIR%\pyproject.toml" (
@@ -441,14 +438,15 @@ if "%DRY_RUN%"=="0" (
   )
 )
 
-if "%DRY_RUN%"=="0" if "%CLEAN_PORTS%"=="1" (
-  if /I "%LLM_PROVIDER%"=="gguf" call :kill_port %GGUF_PORT%
-  call :kill_port 8080
-  call :kill_port 9000
-  call :kill_port 9010
-  call :kill_port 9880
-  call :kill_port 8011
-  call :kill_port 8012
+if "%DRY_RUN%"=="0" (
+  if /I "%LLM_PROVIDER%"=="gguf" (
+    call :require_port_free %GGUF_PORT%
+    if errorlevel 1 exit /b 1
+  )
+  for %%P in (8080 9000 9010 9880) do (
+    call :require_port_free %%P
+    if errorlevel 1 exit /b 1
+  )
 )
 set "STT_PORTS_IN_USE=0"
 for /f "delims=" %%I in ('powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; $a=Get-NetTCPConnection -State Listen -LocalPort 8011 -EA SilentlyContinue; $b=Get-NetTCPConnection -State Listen -LocalPort 8012 -EA SilentlyContinue; if($a -and $b){'1'}else{'0'}"') do (
@@ -567,7 +565,7 @@ echo [5/6] Preparing Core backend launcher...
   echo set "CUDA_VISIBLE_DEVICES=-1"
   echo set "SQLITE_PATH=%RUNTIME_SQLITE_PATH%"
   echo set "CHROMA_PATH=%RUNTIME_CHROMA_DIR%"
-  echo "%UV_EXE%" --directory "%CORE_DIR%" run uvicorn app.main:app --host 0.0.0.0 --port 8080
+  echo "%UV_EXE%" --directory "%CORE_DIR%" run uvicorn app.main:app --host %APP_HOST% --port 8080
   echo if errorlevel 1 echo [WARN] Command exited with code %%errorlevel%%
 )
 
@@ -645,16 +643,12 @@ echo [INFO] Core health URL: http://127.0.0.1:8080/health
 echo [INFO] Dependency check: http://127.0.0.1:8080/health/deps
 exit /b 0
 
-:kill_port
+:require_port_free
 set "PORT=%~1"
-for /f "delims=" %%P in ('powershell -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; Get-NetTCPConnection -State Listen -LocalPort !PORT! ^| Select-Object -ExpandProperty OwningProcess -Unique"') do (
-  if not "%%P"=="" (
-    echo [PORT] !PORT! occupied by PID %%P, terminating...
-    taskkill /PID %%P /F >nul 2>nul
-    if errorlevel 1 (
-      echo [WARN] Failed to terminate PID %%P on port !PORT!.
-    )
-  )
+powershell -NoProfile -Command "if(Get-NetTCPConnection -State Listen -LocalPort !PORT! -ErrorAction SilentlyContinue){exit 1}" >nul
+if errorlevel 1 (
+  echo [ERROR] Port !PORT! is already in use. Stop the existing service manually before launching Project Avis.
+  exit /b 1
 )
 exit /b 0
 
@@ -662,6 +656,7 @@ exit /b 0
 if not exist "%CONFIG_FILE%" exit /b 0
 
 call :yaml_get "TTS_PROVIDER" TTS_PROVIDER
+call :yaml_get "APP_HOST" APP_HOST
 call :yaml_get "LLM_PROVIDER" LLM_PROVIDER
 call :yaml_get "LLM_MODEL_PROFILE" LLM_MODEL_PROFILE
 call :yaml_get "GGUF_BASE_URL" GGUF_BASE_URL

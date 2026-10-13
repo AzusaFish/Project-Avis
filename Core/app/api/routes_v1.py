@@ -331,6 +331,7 @@ async def update_memory(memory_id: int, req: UpdateMemoryReq, request: Request) 
     ok_flag = await sqlite.update_dialogue_text(memory_id, req.text.strip())
     if not ok_flag:
         raise HTTPException(status_code=404, detail=f"memory id not found: {memory_id}")
+    _get_agent(request).invalidate_kv_summary()
     return ok({"updated": True, "id": memory_id})
 
 
@@ -341,6 +342,7 @@ async def delete_memory(memory_id: int, request: Request) -> dict:
     ok_flag = await sqlite.delete_dialogue(memory_id)
     if not ok_flag:
         raise HTTPException(status_code=404, detail=f"memory id not found: {memory_id}")
+    _get_agent(request).invalidate_kv_summary()
     return ok({"deleted": True, "id": memory_id})
 
 
@@ -349,6 +351,7 @@ async def delete_memory(memory_id: int, request: Request) -> dict:
 async def clear_memory(req: ClearMemoryReq, request: Request) -> dict:
     sqlite = _get_sqlite(request)
     deleted = await sqlite.clear_dialogue(role=req.role)
+    _get_agent(request).invalidate_kv_summary()
     return ok({"deleted": deleted, "role": req.role})
 
 

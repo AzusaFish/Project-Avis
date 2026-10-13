@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="neuro_core", alias="APP_NAME")
     app_env: str = Field(default="dev", alias="APP_ENV")
-    app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
+    app_host: str = Field(default="127.0.0.1", alias="APP_HOST")
     app_port: int = Field(default=8080, alias="APP_PORT")
 
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")

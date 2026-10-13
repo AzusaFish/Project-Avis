@@ -21,6 +21,7 @@ from app.api.routes_memory import router as memory_router
 from app.api.routes_playground import router as playground_router
 from app.api.routes_v1 import router as v1_router
 from app.core.lifecycle import shutdown, startup
+from app.core.local_only import ALLOWED_ORIGINS, LocalOnlyMiddleware
 from app.core.logger import setup_logging
 from app.inputs.websocket_audio import router as audio_ws_router
 
@@ -39,11 +40,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Neuro Core", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(LocalOnlyMiddleware)
 app.include_router(health_router)
 app.include_router(integration_router)
 app.include_router(control_router)

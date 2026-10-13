@@ -71,9 +71,19 @@ class SQLiteStore:
 
     # Migrate legacy dialogue rows into short-term buffer.
     async def _migrate_dialogue_to_short_term(self, conn: aiosqlite.Connection) -> None:
+        cursor = await conn.execute("SELECT v FROM runtime_meta WHERE k = 'dialogue_migration_done'")
+        if await cursor.fetchone():
+            return
+
         cursor = await conn.execute("SELECT COUNT(*) FROM short_term_buffer")
         row = await cursor.fetchone()
         if int(row[0] if row else 0) > 0:
+            await conn.execute("INSERT INTO runtime_meta(k, v) VALUES('dialogue_migration_done', '1')")
+            return
+
+        cursor = await conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'short_term_buffer'")
+        if await cursor.fetchone():
+            await conn.execute("INSERT INTO runtime_meta(k, v) VALUES('dialogue_migration_done', '1')")
             return
 
         cursor = await conn.execute("SELECT COUNT(*) FROM dialogue")
@@ -90,6 +100,7 @@ class SQLiteStore:
             "0, 'dialogue_migration' "
             "FROM dialogue ORDER BY id ASC"
         )
+        await conn.execute("INSERT INTO runtime_meta(k, v) VALUES('dialogue_migration_done', '1')")
 
     # Insert a short-term memory record.
     async def insert_short_term_memory(
@@ -328,6 +339,8 @@ class SQLiteStore:
                 "UPDATE short_term_buffer SET content = ? WHERE msg_id = ?",
                 (text, int(dialogue_id)),
             )
+            if cursor.rowcount > 0:
+                await conn.execute("DELETE FROM runtime_meta WHERE k = 'kv_summary_text'")
             await conn.commit()
             return cursor.rowcount > 0
 
@@ -335,6 +348,8 @@ class SQLiteStore:
     async def delete_dialogue(self, dialogue_id: int) -> bool:
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute("DELETE FROM short_term_buffer WHERE msg_id = ?", (int(dialogue_id),))
+            if cursor.rowcount > 0:
+                await conn.execute("DELETE FROM runtime_meta WHERE k = 'kv_summary_text'")
             await conn.commit()
             return cursor.rowcount > 0
 
@@ -349,5 +364,6 @@ class SQLiteStore:
 
         async with aiosqlite.connect(self.path) as conn:
             cursor = await conn.execute(sql, args)
+            await conn.execute("DELETE FROM runtime_meta WHERE k = 'kv_summary_text'")
             await conn.commit()
             return max(0, int(cursor.rowcount))

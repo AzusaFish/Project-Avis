@@ -3,6 +3,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import Live2DCanvas from './components/Live2DCanvas.vue'
 import SubtitleOverlay from './components/SubtitleOverlay.vue'
@@ -12,7 +13,7 @@ const appWindow = getCurrentWindow()
 
 // ===== 页面配置状态（会持久化到 localStorage） =====
 const showSettings = ref(false)
-const modelPath = ref(localStorage.getItem('l2d_modelPath') || 'D:/AzusaFish/Codes/Development/Project-Avis/Data/Live2D Cubism/hiyori_free_zh/hiyori_free_zh/runtime/hiyori_free_t08.model3.json')
+const modelPath = ref(localStorage.getItem('l2d_modelPath') || '')
 const modelScale = ref(Number(localStorage.getItem('l2d_modelScale')) || 0.25)
 const modelX = ref(Number(localStorage.getItem('l2d_modelX')) || 0)
 const modelY = ref(Number(localStorage.getItem('l2d_modelY')) || 0)
@@ -34,6 +35,28 @@ const isSending = ref(false)
 const showChatInput = ref(false)
 const live2dRef = ref<InstanceType<typeof Live2DCanvas>>()
 
+type BackendStatus = {
+  phase: string
+  message: string
+  log_dir: string
+  services: Array<{ name: string; pid: number; state: string }>
+}
+
+const backendPhase = ref('preparing')
+const backendMessage = ref('正在准备后台服务')
+const ttsError = ref('')
+let backendStatusTimer: ReturnType<typeof setInterval> | null = null
+
+async function refreshBackendStatus() {
+  try {
+    const status = await invoke<BackendStatus>('backend_status')
+    backendPhase.value = status.phase
+    backendMessage.value = status.message
+  } catch (e) {
+    console.warn('[Backend] status unavailable:', e)
+  }
+}
+
 // ===== 麦克风录音 + VAD =====
 const micEnabled = ref(false)
 const micSpeaking = ref(false) // 是否正在说话（用于 UI 指示）
@@ -45,6 +68,7 @@ const MIC_INPUT_GAIN = 2.8      // 低音量补偿；最终发送前会再做 [-
 const MIC_RMS_LOG_INTERVAL_MS = 2500
 
 let micStream: MediaStream | null = null
+let micSession = 0
 let micAudioCtx: AudioContext | null = null
 let micProcessor: ScriptProcessorNode | null = null
 let micSource: MediaStreamAudioSourceNode | null = null
@@ -57,6 +81,9 @@ let lastMicRmsLogTs = 0
 let audioWs: WebSocket | null = null
 let ttsQueue: string[] = []
 let ttsPlaying = false
+let ttsGeneration = 0
+let ttsAbortController: AbortController | null = null
+let finishTtsPlayback: (() => void) | null = null
 let currentTtsAudio: HTMLAudioElement | null = null
 let lastTtsObjectUrl: string | null = null
 let ttsAudioCtx: AudioContext | null = null
@@ -133,10 +160,15 @@ function splitSpeakableChunks(delta: string, forceFlush = false): string[] {
 }
 
 function stopTtsPlayback() {
+  ttsGeneration++
+  ttsAbortController?.abort()
+  ttsAbortController = null
   if (currentTtsAudio) {
     currentTtsAudio.pause()
     currentTtsAudio.currentTime = 0
   }
+  finishTtsPlayback?.()
+  finishTtsPlayback = null
   if (lastTtsObjectUrl) {
     URL.revokeObjectURL(lastTtsObjectUrl)
     lastTtsObjectUrl = null
@@ -203,6 +235,12 @@ function bindAudioUnlock() {
   if (audioUnlockBound) return
   audioUnlockBound = true
   const unlock = () => {
+    try {
+      if (!ttsAudioCtx) ttsAudioCtx = new AudioContext()
+      void ttsAudioCtx.resume().catch((error) => console.warn('[TTS] audio context unlock failed:', error))
+    } catch (error) {
+      console.warn('[TTS] audio context unavailable:', error)
+    }
     const a = new Audio()
     // iOS / Chromium autoplay policy: establish user-gesture playback capability once.
     a.muted = true
@@ -226,9 +264,10 @@ async function playAssistantTts(text: string) {
   ttsQueue.push(cleaned)
   if (ttsPlaying) return
   ttsPlaying = true
+  const generation = ttsGeneration
 
   try {
-    while (ttsQueue.length > 0) {
+    while (generation === ttsGeneration && ttsQueue.length > 0) {
       const next = ttsQueue.shift()!
       const body: Record<string, unknown> = {
         model: 'kokoro',
@@ -241,20 +280,34 @@ async function playAssistantTts(text: string) {
       if (ttsLangOverride.value.trim()) {
         body.lang = ttsLangOverride.value.trim()
       }
-      const resp = await fetch(`${ttsServerUrl.value.replace(/\/$/, '')}/v1/audio/speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const controller = new AbortController()
+      ttsAbortController = controller
+      let resp: Response
+      try {
+        resp = await fetch(`${ttsServerUrl.value.replace(/\/$/, '')}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } finally {
+        if (ttsAbortController === controller) ttsAbortController = null
+      }
+      if (generation !== ttsGeneration) break
       if (!resp.ok) {
-        console.error('[TTS] synth failed:', resp.status, await resp.text().catch(() => ''))
+        const detail = await resp.text().catch(() => '')
+        ttsError.value = `语音合成失败 (${resp.status})`
+        console.error('[TTS] synth failed:', resp.status, detail)
         continue
       }
 
       const audioBlob = await resp.blob()
+      if (generation !== ttsGeneration) break
       const objectUrl = URL.createObjectURL(audioBlob)
       const audio = new Audio(objectUrl)
       audio.volume = Math.max(0, Math.min(1, ttsVolume.value))
+      currentTtsAudio = audio
+      lastTtsObjectUrl = objectUrl
       if (sinkIdSupported && audioOutputDeviceId.value) {
         try {
           await (audio as any).setSinkId(audioOutputDeviceId.value)
@@ -262,33 +315,53 @@ async function playAssistantTts(text: string) {
           console.warn('[Audio] setSinkId failed:', e)
         }
       }
-      currentTtsAudio = audio
-      lastTtsObjectUrl = objectUrl
-      startLipSync(audio)
-      try {
-        await audio.play()
-      } catch (e) {
-        console.error('[TTS] autoplay blocked or playback failed:', e)
-        stopLipSync()
-        break
-      }
-
-      await new Promise<void>((resolve) => {
-        const done = () => {
+      if (generation !== ttsGeneration) break
+      const playbackFinished = new Promise<void>((resolve) => {
+        let completed = false
+        const done = (event?: Event) => {
+          if (completed) return
+          completed = true
+          if (event?.type === 'error') ttsError.value = '音频文件播放失败'
           audio.removeEventListener('ended', done)
           audio.removeEventListener('error', done)
+          if (finishTtsPlayback === finish) finishTtsPlayback = null
           URL.revokeObjectURL(objectUrl)
           if (lastTtsObjectUrl === objectUrl) lastTtsObjectUrl = null
-          if (currentTtsAudio === audio) currentTtsAudio = null
-          stopLipSync()
+          if (currentTtsAudio === audio) {
+            currentTtsAudio = null
+            stopLipSync()
+          }
           resolve()
         }
+        const finish = () => done()
+        finishTtsPlayback = finish
         audio.addEventListener('ended', done)
         audio.addEventListener('error', done)
       })
+      startLipSync(audio)
+      try {
+        if (ttsAudioCtx?.state === 'suspended') await ttsAudioCtx.resume()
+        if (generation !== ttsGeneration) break
+        await audio.play()
+      } catch (e) {
+        if (generation !== ttsGeneration) break
+        ttsError.value = '语音播放失败，请检查音频输出设备'
+        console.error('[TTS] autoplay blocked or playback failed:', e)
+        stopTtsPlayback()
+        break
+      }
+      if (generation !== ttsGeneration) break
+      ttsError.value = ''
+      await playbackFinished
+    }
+  } catch (e) {
+    if (generation === ttsGeneration) {
+      ttsError.value = '无法连接语音服务，请检查 TTS 地址和服务状态'
+      ttsQueue = []
+      console.error('[TTS] request failed:', e)
     }
   } finally {
-    ttsPlaying = false
+    if (generation === ttsGeneration) ttsPlaying = false
   }
 }
 
@@ -390,11 +463,13 @@ function applyMicGain(samples: Float32Array, gain: number): Float32Array {
 }
 
 async function startMic() {
+  const session = ++micSession
   // 开启录音并启动 VAD（语音活动检测）逻辑。
   // 打开麦克风权限并创建 WebAudio 处理链。
   // 先检查是否存在可用音频输入设备；无设备时浏览器通常不会弹授权框。
   try {
     const devices = await navigator.mediaDevices.enumerateDevices()
+    if (session !== micSession || !micEnabled.value) return
     const hasMic = devices.some(d => d.kind === 'audioinput')
     if (!hasMic) {
       console.error('[Mic] no audioinput device found')
@@ -414,6 +489,7 @@ async function startMic() {
     }
     if (navigator.permissions?.query) {
       const perm = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      if (session !== micSession || !micEnabled.value) return
       if (perm.state === 'denied') {
         alert('麦克风权限已被拒绝。请在系统或浏览器站点设置中将 localhost 的麦克风权限改为允许，然后重启前端。')
         micEnabled.value = false
@@ -421,7 +497,7 @@ async function startMic() {
       }
     }
 
-    micStream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         sampleRate: MIC_SAMPLE_RATE,
         channelCount: 1,
@@ -430,7 +506,13 @@ async function startMic() {
         autoGainControl: true,
       }
     })
+    if (session !== micSession || !micEnabled.value) {
+      stream.getTracks().forEach(track => track.stop())
+      return
+    }
+    micStream = stream
   } catch (e: any) {
+    if (session !== micSession || !micEnabled.value) return
     const errName = e?.name || 'UnknownError'
     const errMsg = e?.message || String(e)
     console.error('[Mic] getUserMedia failed:', errName, errMsg)
@@ -501,6 +583,7 @@ async function startMic() {
 }
 
 function stopMic() {
+  micSession++
   // 关闭音频节点与设备句柄，防止麦克风占用。
   if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null }
   micProcessor?.disconnect()
@@ -744,12 +827,20 @@ watch(resServerUrl, () => {
 })
 
 onMounted(() => {
+  if (!modelPath.value) {
+    void invoke<string>('default_live2d_model_path')
+      .then(path => { if (!modelPath.value) modelPath.value = path })
+      .catch(error => console.error('[Live2D] default model unavailable:', error))
+  }
   bindAudioUnlock()
   void refreshAudioOutputDevices()
+  void refreshBackendStatus()
+  backendStatusTimer = setInterval(refreshBackendStatus, 1000)
   navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioOutputDevices)
   connectWs()
 })
 onUnmounted(() => {
+  if (backendStatusTimer) clearInterval(backendStatusTimer)
   if (reconnectTimer) clearTimeout(reconnectTimer)
   ws?.close()
   navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioOutputDevices)
@@ -841,7 +932,15 @@ async function sendChat() {
 <template>
   <div class="app-root">
     <div class="title-bar" @mousedown="startDrag">
-      <span class="title-text">Project Avis Live2D</span>
+      <span class="title-text">
+        Project Avis Live2D
+        <span
+          class="backend-status"
+          :class="`backend-${backendPhase}`"
+          :title="backendMessage"
+        >{{ backendPhase === 'ready' ? '●' : backendPhase === 'error' ? '!' : '◌' }}</span>
+        <span v-if="ttsError" class="tts-error" :title="ttsError">语音异常</span>
+      </span>
       <div class="title-btns" @mousedown.stop>
         <button
           class="title-btn mic-btn"
@@ -928,6 +1027,18 @@ html, body, #app, .app-root {
   user-select: none;
   flex-shrink: 0;
   border-radius: 8px 8px 0 0;
+}
+.backend-status {
+  margin-left: 6px;
+  color: #f4c95d;
+  font-size: 11px;
+}
+.backend-ready { color: #5ee28b; }
+.backend-error { color: #ff6b6b; }
+.tts-error {
+  margin-left: 6px;
+  color: #ff6b6b;
+  font-size: 11px;
 }
 .title-text {
   color: #8892b0;

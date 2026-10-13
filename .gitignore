@@ -114,3 +114,6 @@ Tuning/Data_Collection
 Tuning/LLaMa_Factory/acceptance_reports/
 Tools/
 Ref/
+
+# Local coursework reports
+/assignment_reports/

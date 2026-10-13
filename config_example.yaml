@@ -7,12 +7,12 @@ KOKORO_VOICE: jf_alpha
 KOKORO_LANG: en-us
 KOKORO_SPEED: 1.0
 GPU_ID: 0
-CLEAN_PORTS: 1
+CLEAN_PORTS: 0
 
 # App
 APP_NAME: neuro_core
 APP_ENV: dev
-APP_HOST: 0.0.0.0
+APP_HOST: 127.0.0.1
 APP_PORT: 8080
 
 # LLM backend

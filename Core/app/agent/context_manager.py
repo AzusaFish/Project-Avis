@@ -38,18 +38,21 @@ class ContextSlice:
                     "content": "Persona style examples:\n" + "\n".join(self.persona_examples),
                 }
             )
-        # for item in self.short_history:
-        #     role = str(item.get("role", "user")).strip().lower()
-        #     if role not in {"user", "assistant", "system", "tool"}:
-        #         continue
-        #     messages.append({"role": role, "content": str(item.get("content", ""))})
+        for item in self.short_history:
+            role = str(item.get("role", "user")).strip().lower()
+            content = str(item.get("content", ""))
+            if role == "tool":
+                messages.append({"role": "system", "content": f"[TOOL_RESULT] {content}"})
+            elif role in {"user", "assistant", "system"}:
+                messages.append({"role": role, "content": content})
 
         latest = str(self.latest_input or "")
         latest_norm = latest.strip()
         should_append_latest = bool(latest_norm)
         if should_append_latest and self.short_history:
-            last_content = str(self.short_history[-1].get("content", "")).strip()
-            if last_content == latest_norm:
+            last_item = self.short_history[-1]
+            last_content = str(last_item.get("content", "")).strip()
+            if str(last_item.get("role", "")).lower() == "user" and last_content == latest_norm:
                 should_append_latest = False
 
         if should_append_latest:

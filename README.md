@@ -36,3 +36,23 @@ Project-Avis/
 │   ├── LLaMa_Factory/      # SFT/DPO 训练配置与启动脚本
 │   └── Unsloth/            # 纯文本模型微调
 └── scripts/                # 全局自动化脚本
+```
+
+## 桌面 App 启动
+
+运行 Tauri 桌面端时，App 会自动生成并静默启动 LLM、TTS、STT、微信桥接和 Core 后台服务，不再弹出多个命令行窗口：
+
+```powershell
+cd live2d-desktop
+npm run tauri dev
+```
+
+标题栏中的绿色圆点表示 Core 和 TTS 已连接；黄色圆圈表示后台仍在启动；红色感叹号表示启动失败。服务日志写入系统的 Project Avis App 日志目录。关闭主窗口时，由 App 启动的后台进程会一并结束。
+
+Core 默认只监听本机地址，并拒绝非本机连接及非受信任网页来源的 HTTP/WebSocket 请求；即使修改 `APP_HOST`，远程请求仍会被拒绝。启动脚本不会自动结束占用端口的进程；如提示端口被占用，请先确认并手动停止对应服务。
+
+当前阶段仍要求完整项目目录和本地模型存在。如果桌面程序从项目目录之外启动，可通过 `PROJECT_AVIS_ROOT` 指定项目根目录：
+
+```powershell
+$env:PROJECT_AVIS_ROOT = "D:\AzusaFish\Codes\Development\Project-Avis"
+```
